@@ -150,6 +150,20 @@ dialog::backdrop{background:rgb(0 0 0 / .35)}
 .grp_t{font-size:11.5px;color:var(--muted);font-weight:600;margin:14px 2px 6px}
 .grp{border:1px solid var(--line);border-radius:12px;padding:0 12px;background:var(--bg)}
 .grp>.sw:first-child,.grp>.slots:first-child{border-top:0}
+.wide{display:none}
+/* 09-30 PC 버전: 넓은 화면은 화면 너비 가득(최대폭 없음), 칸 나눔. 폰은 위 그대로 */
+@media (min-width:1080px){
+  body{max-width:none;padding-inline:clamp(16px,2vw,32px)}
+  .board{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,38%);grid-template-areas:"tiles tiles" "all att" "all bl" "all delay";column-gap:20px;align-items:start}   /* 사용자: 메인(전체 운행) 왼쪽 */
+  .s-tiles{grid-area:tiles}.s-att{grid-area:att}.s-all{grid-area:all}.s-bl{grid-area:bl}.s-delay{grid-area:delay}
+  .s-all{position:sticky;top:70px}
+  .s-all .list{max-height:calc(100vh - 150px);overflow:auto}
+  .wide{display:inline}
+  .toast{max-width:720px}
+}
+@media (min-width:1600px){
+  .board{grid-template-columns:minmax(0,1fr) minmax(340px,28%) minmax(300px,22%);grid-template-areas:"tiles tiles tiles" "all att bl" "all att delay"}
+}
 dialog.sheet{margin:auto;border-radius:16px;max-height:min(86vh,720px)}   /* 09-30 사용자: 화면 가운데 창 */
 dialog.sheet[open]{animation:sheetIn .16s ease-out}
 @keyframes sheetIn{from{transform:scale(.97);opacity:.6}to{transform:none;opacity:1}}
@@ -172,16 +186,18 @@ dialog.sheet[open]{animation:sheetIn .16s ease-out}
   <div id="a2hs_acts" class="a2hs_acts"><button class="btn" type="button" id="a2hs_later">나중에</button><button class="btn" type="button" id="a2hs_done">이미 있어요</button><a class="btn hot" id="a2hs_go" target="_top" href="https://script.google.com/macros/s/AKfycbyVJvKp3CzT3Yffae6Og9BcQZrkIKczuK62B6GwxFZbBs33HLZF0MMAV4vadb3pSN1t/exec?home=1">아이콘 만들기</a></div>
 </div>
 
-<section><div class="tiles" id="tiles"></div></section>
-<section><h2>지금 봐야 할 차</h2><div class="list" id="att"></div></section>
-<section>
+<main class="board">   <!-- 09-30 폰·PC 두 버전: 폰은 한 줄, 넓은 화면은 칸 나눔(사이즈 100%) -->
+<section class="s-tiles"><div class="tiles" id="tiles"></div></section>
+<section class="s-att"><h2>지금 봐야 할 차</h2><div class="list" id="att"></div></section>
+<section class="s-all">
   <h2>전체 운행</h2>
   <div class="filters" id="filters"></div>
   <div class="list" id="all"></div>
 </section>
 
-<section><h2>블랙리스트 <span class="small">BL관리 · 확정지연 많은 순</span></h2><div class="list" id="blList"></div></section>
-<section><h2>최근 지연 이력</h2><div class="list" id="delayList"></div></section>
+<section class="s-bl"><h2>블랙리스트 <span class="small">BL관리 · 확정지연 많은 순</span></h2><div class="list" id="blList"></div></section>
+<section class="s-delay"><h2>최근 지연 이력</h2><div class="list" id="delayList"></div></section>
+</main>
 
 <div id="pop" class="pop" role="dialog" aria-label="기사님께 전화" hidden><span id="pop_who" class="who">기사님</span><a id="pop_go" class="callbtn" href="#">연결하기</a></div>
 <dialog id="dlg">
@@ -262,7 +278,7 @@ function openPop(btn){ const p=$('pop'); if(p.dataset.v===btn.dataset.v && !p.hi
 
 function phoneOf(v){ const r=(DATA.rows||[]).find(x=>x.vehicle===v); return r?r.phone:''; }
 function notes(n,st){ return (n||'').split(/\s*·\s*/).filter(t=>t && t!==plain(st)).map(t=>'<span class="chip'+(/미출발|정차|밀림|서행|🚚/.test(t)?' warn':'')+'">'+esc(t)+'</span>').join(''); }
-function rowHtml(r){ return '<div class="row"><span class="sev" style="background:'+color(r.status,r.note)+'"></span><div class="main"><div class="top">'+veh(r.vehicle,r.phone,r.driver)+(r.bl?'<span class="chip bl" title="BL관리 대상 차량·기사">BL</span>':'')+'<span class="chip st" style="--c:'+txtColor(r.status,r.note)+'">'+esc(plain(r.status))+'</span>'+notes(r.note,r.status)+'</div>'+callRow(r)+'<span class="route">'+esc(r.route)+(r.memo?' · '+esc(r.memo):'')+'</span></div><div class="right"><div class="big num" title="'+esc(r.slack||'')+'">'+esc(slackShort(r.slack))+'</div><div class="small">'+etaText(r.eta)+'</div></div></div>'; }
+function rowHtml(r){ return '<div class="row"><span class="sev" style="background:'+color(r.status,r.note)+'"></span><div class="main"><div class="top">'+veh(r.vehicle,r.phone,r.driver)+(r.bl?'<span class="chip bl" title="BL관리 대상 차량·기사">BL</span>':'')+'<span class="chip st" style="--c:'+txtColor(r.status,r.note)+'">'+esc(plain(r.status))+'</span>'+notes(r.note,r.status)+'</div>'+callRow(r)+'<span class="route">'+esc(r.route)+(r.memo?' · '+esc(r.memo):'')+'<span class="wide"> · 출발 '+esc(r.dep||'-')+' · 마감 '+esc(r.deadline||'-')+(r.driver?' · '+esc(r.driver)+' 기사님':'')+'</span></span></div><div class="right"><div class="big num" title="'+esc(r.slack||'')+'">'+esc(slackShort(r.slack))+'</div><div class="small">'+etaText(r.eta)+'</div></div></div>'; }
 function linkHtml(l){ const c=l.level==='불가'?'var(--alert)':l.level==='빠듯'?'var(--move)':'var(--wait)';
   const right=l.level==='기록확인'?'<div class="big">기록확인</div><div class="small">다음 입고 <span class="mono">'+esc(l.plan)+'</span></div>':'<div class="big num" style="color:color-mix(in srgb,'+c+' 62%,var(--ink))">'+(Number(l.slack)>0?'+':'')+esc(l.slack)+'분</div><div class="small">계획 <span class="mono">'+esc(l.plan)+'</span> · 준비 <span class="mono">'+esc(l.ready)+'</span></div>';
   return '<div class="row"><span class="sev" style="background:'+c+'"></span><div class="main"><div class="top">'+veh(l.vehicle,phoneOf(l.vehicle))+'<span class="chip warn">연계 '+esc(l.level)+'</span></div><span class="route">'+esc(l.from)+' 도착 → '+esc(l.leg)+'</span></div><div class="right">'+right+'</div></div>'; }
