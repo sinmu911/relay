@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>중계현황</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#EEF1F4">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="중계현황">
+<style>
+:root{--bg:#EEF1F4;--surface:#FFFFFF;--ink:#16202B;--muted:#5B6776;--line:#D6DCE3;--accent:#5A7FB8;--accentInk:#FFFFFF}
+@media (prefers-color-scheme:dark){:root{--bg:#0F1720;--surface:#17222E;--ink:#E7ECF1;--muted:#93A1B1;--line:#263444;--accent:#8AABD6;--accentInk:#0B1833}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Apple SD Gothic Neo",sans-serif}
+#app{position:fixed;inset:0;width:100%;height:100%;border:0;display:none;background:var(--bg)}
+#retry{position:fixed;left:50%;bottom:calc(10px + env(safe-area-inset-bottom));transform:translateX(-50%);display:none;font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:5px 11px;text-decoration:none}
+main{max-width:360px;margin:0 auto;padding:56px 16px 32px;text-align:center}
+main img{width:84px;height:84px;border-radius:20px}
+h1{font-size:19px;margin:14px 0 4px}
+p{font-size:13px;color:var(--muted);line-height:1.6;margin:0 0 20px}
+.btn{display:block;width:100%;padding:12px;border-radius:12px;border:0;font-size:14px;font-weight:600;text-decoration:none;cursor:pointer;margin-bottom:8px}
+.hot{background:var(--accent);color:var(--accentInk)}
+.plain{background:var(--surface);color:var(--ink);border:1px solid var(--line)}
+#how{font-size:12.5px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px;display:none;text-align:left;line-height:1.6}
+</style></head><body>
+<iframe id="app" title="중계현황" allow="clipboard-write"></iframe>
+<a id="retry" target="_blank" rel="noopener">화면이 안 나오면 여기 (로그인)</a>
+<main id="home" hidden>
+  <img src="icon-192.png" alt="">
+  <h1>중계현황</h1>
+  <p>홈 화면에 아이콘을 만들면<br>앱처럼 주소창 없이 바로 열려요.</p>
+  <button id="install" class="btn hot" type="button">앱 설치</button>
+  <div id="how"></div>
+  <a id="open" class="btn plain">설치 없이 그냥 보기</a>
+</main>
+<script>
+// 09-30 중계현황 설치용 껍데기. 대시보드 본체는 Apps Script 그대로(여기엔 자료 없음).
+const DASH='https://script.google.com/macros/s/AKfycbyVJvKp3CzT3Yffae6Og9BcQZrkIKczuK62B6GwxFZbBs33HLZF0MMAV4vadb3pSN1t/exec?home=1';
+const ua=navigator.userAgent||'';
+const ios=/iPhone|iPad|iPod/.test(ua), android=/Android/.test(ua);
+const inApp=/KAKAOTALK|NAVER\(inapp|Line\/|Instagram|FBAN|FBAV|DaumApps/i.test(ua);
+const standalone=matchMedia('(display-mode: standalone)').matches || navigator.standalone===true;
+const $=id=>document.getElementById(id);
+$('open').href=DASH; $('retry').href=DASH;
+if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+
+if(/KAKAOTALK/i.test(ua)){
+  // 카톡 안 브라우저 → 폰 기본 브라우저(크롬/사파리)로 넘김
+  location.href='kakaotalk://web/openExternal?url='+encodeURIComponent(location.href);
+} else if(inApp && android){
+  location.href='intent://'+location.host+location.pathname+'#Intent;scheme=https;package=com.android.chrome;end';
+} else if(standalone){
+  if(ios){ location.replace(DASH); }
+  else { $('app').src=DASH; $('app').style.display='block';
+    $('retry').style.display='block'; setTimeout(()=>{ $('retry').style.display='none'; },10000); }
+} else {
+  $('home').hidden=false;
+  let deferred=null;
+  const how=t=>{ $('how').innerHTML=t; $('how').style.display='block'; };
+  window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferred=e; });
+  window.addEventListener('appinstalled',()=>{ how('설치됐어요. 홈 화면의 <b>중계현황</b> 아이콘으로 여세요.'); $('install').style.display='none'; });
+  $('install').onclick=async()=>{
+    if(deferred){ deferred.prompt(); const r=await deferred.userChoice.catch(()=>null); deferred=null; if(r&&r.outcome==='accepted') return; }
+    if(ios) how('사파리 아래쪽 <b>공유(□↑)</b> → <b>홈 화면에 추가</b> → <b>추가</b>');
+    else how('크롬 오른쪽 위 <b>⋮</b> → <b>앱 설치</b> 또는 <b>홈 화면에 추가</b> → <b>설치</b><br><span style="color:var(--muted)">이미 설치돼 있으면 홈 화면 아이콘으로 여세요.</span>');
+  };
+}
+</script>
+</body></html>
