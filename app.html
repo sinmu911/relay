@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ko"><head>
+<link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>
+// 09-30 이메일 링크 사용자용 연결부(구글 로그인 없음). 대시보드 Index.html 을 그대로 쓰고, google.script.run 만 중계 서버 dash_data 로 바꾼다.
+const RELAY = 'https://script.google.com/macros/s/AKfycbykIRIGlFno8lyQBnJOKn9he9zZ6MTcQi0QIIKvcBOgsgkqGqYa3rDDP2PmcPqcgfq3Iw/exec';
+const QS = new URLSearchParams(location.search);
+(function () { const t = QS.get('t'); if (t && /^[0-9a-f]{64}$/.test(t)) { try { localStorage.setItem('lt', t); } catch (e) {} } })();
+const LT = (QS.get('t') && /^[0-9a-f]{64}$/.test(QS.get('t'))) ? QS.get('t') : (function () { try { return localStorage.getItem('lt') || ''; } catch (e) { return ''; } })();
+const DEV = (function () { try { let d = localStorage.getItem('dev'); if (!/^[0-9a-f]{32}$/.test(d || '')) { const b = new Uint8Array(16); crypto.getRandomValues(b); d = [...b].map(x => x.toString(16).padStart(2, '0')).join(''); localStorage.setItem('dev', d); } return d; } catch (e) { return ''; } })();
+const PUSHST = (function () { try { return JSON.parse(localStorage.getItem('push') || '{}'); } catch (e) { return {}; } })();
+if (!LT) location.replace('./');
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+let LINKUSER = null;
+function linkStop(code) {
+  const msg = {DEVICE: '이 폰에서는 열 수 없어요.<br>처음 연 폰에서만 열리게 돼 있어요.<br><b>사장님께 기기 변경 요청을 보냈어요.</b> 승인되면 메일 링크를 다시 누르세요.',
+    REVOKED: '링크가 끊겼어요.<br>사장님께 문의해 주세요.', NO_LINK: '링크가 올바르지 않아요.<br>메일의 링크를 다시 눌러 주세요.', BAD: '링크가 올바르지 않아요.<br>메일의 링크를 다시 눌러 주세요.'}[code] || ('열 수 없어요 (' + code + ')');
+  document.body.innerHTML = '<main style="max-width:360px;margin:0 auto;padding:64px 16px;text-align:center;font-family:system-ui,sans-serif"><img src="icon-192.png" style="width:72px;height:72px;border-radius:18px" alt=""><h1 style="font-size:18px;margin:14px 0 8px">중계현황</h1><p style="font-size:14px;line-height:1.7;color:#5B6776">' + msg + '</p></main>';
+  if (code === 'REVOKED' || code === 'NO_LINK') { try { localStorage.removeItem('lt'); } catch (e) {} }
+}
+async function dashData() {
+  const r = await fetch(RELAY + '?action=dash_data&t=' + LT + '&d=' + DEV, {cache: 'no-store'});
+  const j = await r.json();
+  if (!j.ok) { if (j.error === 'RATE') throw new Error('잠시 뒤 다시'); linkStop(j.error); throw new Error(j.error); }
+  LINKUSER = {name: j.name, email: j.email};
+  return j.data;
+}
+const DEF_SET = {on: true, sound: true, vibrate: true, types: {'연계불가': true, '연계빠듯': true, '기록확인': false, '위험': true, '지연': true, '미출발': true, '정차': true, '밀림서행': false}};
+const LOCAL = {
+  getData: () => dashData(),
+  getSettings: async () => { try { return JSON.parse(localStorage.getItem('set') || 'null') || DEF_SET; } catch (e) { return DEF_SET; } },
+  saveSettings: async (s) => { try { localStorage.setItem('set', JSON.stringify(s)); } catch (e) {} return s; },
+};
+window.google = {script: {run: new Proxy({}, {get(_, first) {
+  const ctx = {ok: null, fail: null};
+  const r = new Proxy({}, {get(__, m) {
+    if (m === 'withSuccessHandler') return f => { ctx.ok = f; return r; };
+    if (m === 'withFailureHandler') return f => { ctx.fail = f; return r; };
+    return (...a) => { const fn = LOCAL[m]; const p = fn ? fn(...a) : Promise.reject(new Error('링크 화면에서는 쓸 수 없는 기능입니다.'));
+      p.then(v => ctx.ok && ctx.ok(v), e => ctx.fail && ctx.fail(e)); };
+  }});
+  return r[first];
+}})}};
+// 화면 꺼져도 알림(링크 사용자): 대시보드의 [켜기]/[끄기] → 여기서 구독 → 중계 서버에 링크 열쇠로 등록
+function b64uKey(k) { const s = atob(k.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - k.length % 4) % 4)); return Uint8Array.from(s, c => c.charCodeAt(0)); }
+const VAPID_PUB = 'BPjT-uoIsc2w_HiYBkR2r8Jf4wGuvC2FmXcbubZn2W1NZjx1g8sa9-9lTeX62amw5mA2JTVqOouKkvbRM8AOL8I';
+window.addEventListener('message', async ev => {
+  if (ev.origin !== location.origin) return;
+  const m = ev.data || {}; if (m.type !== 'relay-push') return;
+  const say = t => { try { toast(t); } catch (e) {} };
+  const slot = ['all', '09-18', '18-03', '00-09'].includes(m.slot) ? m.slot : 'all', silent = !!m.silent;
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) { say('이 폰은 알림을 지원하지 않아요.'); return; }
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (m.on) {
+      if (await Notification.requestPermission() !== 'granted') { say('알림이 차단돼 있어요. 폰 설정 → 앱 → 중계현황 → 알림을 켜 주세요.'); return; }
+      sub = sub || await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: b64uKey(VAPID_PUB)});
+    } else if (!sub) { localStorage.setItem('push', JSON.stringify({pst: 'off'})); say('알림을 껐어요.'); return; }
+    const j = sub.toJSON();
+    const data = JSON.stringify({endpoint: j.endpoint, keys: j.keys, slot: slot, silent: silent, off: !m.on});
+    const email = (LINKUSER && LINKUSER.email) || '';
+    await fetch(RELAY, {method: 'POST', mode: 'no-cors', body: new URLSearchParams({action: 'push_subscribe', email: email, ts: String(Date.now()), token: '', data: data, lt: LT, dev: DEV})});
+    localStorage.setItem('push', JSON.stringify(m.on ? {pst: slot, psl: silent} : {pst: 'off'}));
+    if (!m.on) setTimeout(() => sub.unsubscribe().catch(() => {}), 8000);
+    say(m.on ? '등록했어요. 곧 "알림이 켜졌어요" 알림이 와요.' : '알림을 껐어요.');
+    setTimeout(() => location.reload(), 1500);
+  } catch (e) { say('알림 설정 실패: ' + (e && e.message || e)); }
+});
+
+</script><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+:root{--bg:#EEF1F4;--surface:#FFFFFF;--ink:#16202B;--muted:#5B6776;--line:#D6DCE3;--accent:#5A7FB8;--accentInk:#FFFFFF;--ok:#6BAF8E;--move:#DDA85E;--alert:#DC7B72;--wait:#AEB7C2;--sub:#7FA6D6;--soon:#DCC766;--undep:#A58FD6;--soonText:#8F7A00;--chip:#E4E9EF;--call:#4E9E77;--callInk:#2F7352;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#0F1720;--surface:#17222E;--ink:#E7ECF1;--muted:#93A1B1;--line:#263444;--accent:#8AA8D6;--accentInk:#0B1830;--ok:#5A9C7C;--move:#C99A55;--alert:#C9706A;--wait:#7F8B98;--sub:#6F93BF;--soon:#C4B25A;--undep:#9480C4;--soonText:#D9C04A;--chip:#1F2C3A;--call:#5DB58A;--callInk:#8FD3AF;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0 auto;max-width:720px;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo",sans-serif;font-size:13.5px;line-height:1.5;padding-inline:16px;padding-block:0 40px}
+.mono,.num{font-family:inherit;font-variant-numeric:tabular-nums;letter-spacing:0}
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:3;background:var(--bg);padding-block:14px 10px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px}
+h1{font-size:17.5px;margin:0;font-weight:700}
+.sub{color:var(--muted);font-size:11px}
+body.stale #tiles,body.stale #att,body.stale #all,body.stale #blList,body.stale #delayList{opacity:.55;transition:opacity .2s}
+[hidden]{display:none!important}   /* 09-30: .btn 의 all:unset 이 hidden 을 무시해 '접근 요청' 버튼이 주인 아닌 사람에게도 보이던 문제 */
+.btn{all:unset;cursor:pointer;font-size:11px;font-weight:600;padding:6px 11px;border-radius:999px;background:var(--chip);color:var(--ink)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.hot{background:var(--accent);color:var(--accentInk)}
+.pop{position:absolute;z-index:20;background:var(--surface);border:1px solid var(--line);border-radius:7px;box-shadow:0 3px 10px rgb(0 0 0 / .14);padding:2px 2px 2px 7px;display:flex;flex-direction:row;align-items:center;gap:6px;height:26px}
+.pop[hidden]{display:none}
+.pop::before{content:'';position:absolute;left:12px;top:-4px;width:6px;height:6px;background:var(--surface);border-left:1px solid var(--line);border-top:1px solid var(--line);transform:rotate(45deg)}
+.pop .who{font-size:10px;font-weight:700;white-space:nowrap}
+.pop .callbtn{min-height:20px;height:20px;justify-content:center;font-size:10px;padding:0 7px;border-radius:5px;gap:4px;background:color-mix(in srgb,var(--call) 14%,var(--surface));color:var(--callInk);border:1px solid color-mix(in srgb,var(--call) 35%,transparent)}
+.pop .callbtn svg{width:11px;height:11px}
+.a2hs{margin-top:12px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;padding:10px 12px}
+.a2hs[hidden]{display:none}
+.a2hs_t{font-weight:700;font-size:13px}
+.a2hs_b{font-size:12px;color:var(--muted);margin-top:4px;line-height:1.6}
+.a2hs_b b{color:var(--ink)}
+.a2hs_acts{display:flex;gap:6px;justify-content:flex-end;margin-top:8px}
+.btn.ico{display:inline-flex;align-items:center;gap:5px}
+.btn.ico svg{width:15px;height:15px}
+.btn.quiet{background:var(--chip);color:var(--muted)}
+section{margin-top:20px}
+h2{font-size:11.5px;font-weight:600;color:var(--muted);letter-spacing:.06em;margin:0 0 10px}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+@media (max-width:460px){.tiles{grid-template-columns:repeat(2,1fr)}}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:11px 12px 9px}
+.tile .k{font-size:11px;color:var(--muted)} .tile .v{font-size:22.5px;font-weight:700;line-height:1.15}
+.list{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.row{display:grid;grid-template-columns:6px 1fr auto;gap:12px;align-items:center;padding:10px 14px 10px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.sev{align-self:stretch}
+.main{display:flex;flex-direction:column;min-width:0;gap:1px}
+.top{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.call{display:inline-flex;align-items:center;gap:6px;color:var(--ink);text-decoration:none;font-weight:700;font-size:13.5px;border-bottom:1.5px solid var(--accent);padding-bottom:1px}
+.call svg{width:14px;height:14px}
+button.call{background:none;border:0;border-bottom:1.5px solid var(--accent);padding:0 0 1px;cursor:pointer;font-family:inherit}
+.callbtn{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border-radius:10px;background:var(--call);color:var(--callInk);font-weight:800;font-size:13.5px;text-decoration:none}
+.callbtn svg{width:16px;height:16px}
+.nocall{font-weight:700;font-size:13.5px}
+.route{font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip{font-size:10px;padding:1px 7px;border-radius:999px;background:var(--chip);color:var(--muted);font-weight:500;white-space:nowrap}
+.chip.st{color:color-mix(in srgb,var(--c) 62%,var(--ink));background:color-mix(in srgb,var(--c) 14%,transparent);font-weight:600}
+.chip.bl{background:var(--ink);color:var(--bg);font-weight:700;letter-spacing:.04em}
+.mini{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:9px 14px;border-top:1px solid var(--line);font-size:12px}
+.mini:first-child{border-top:0}
+.chip.warn{background:color-mix(in srgb,var(--alert) 16%,transparent);color:var(--alert)}
+.right{text-align:right;white-space:nowrap}
+.right .big{white-space:nowrap;font-size:11px;font-weight:600;color:color-mix(in srgb,var(--ink) 62%,var(--surface))}
+.right .small{font-size:10px}
+.big{font-weight:700;font-size:13px}
+.small{font-size:10.5px;color:var(--muted)}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.filters .btn[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.empty{padding:14px;color:var(--muted);font-size:12px}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);width:min(560px,calc(100% - 32px));padding:16px}
+dialog::backdrop{background:rgb(0 0 0 / .35)}
+.req{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.req:first-child{border-top:0}
+.acts{display:flex;gap:6px}
+.btn.ok{background:var(--ok);color:#fff} .btn.no{background:var(--chip)}
+.sw{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);font-size:13px}
+.sw input{appearance:none;-webkit-appearance:none;width:38px;height:22px;border-radius:999px;background:var(--line);position:relative;cursor:pointer;flex:none;transition:background .15s;margin:0}
+.sw input::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.2);transition:transform .15s}
+.sw input:checked{background:var(--accent)}.sw input:checked::after{transform:translateX(16px)}
+.sw input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sheet{padding:0 16px 16px;max-height:86vh;overflow:auto}
+.sheet::backdrop{background:rgba(15,23,32,.35)}
+.sh_head{position:sticky;top:0;display:flex;align-items:center;justify-content:space-between;padding:14px 0 8px;background:var(--surface);font-size:15px;z-index:1}
+.grp_t{font-size:11.5px;color:var(--muted);font-weight:600;margin:14px 2px 6px}
+.grp{border:1px solid var(--line);border-radius:12px;padding:0 12px;background:var(--bg)}
+.grp>.sw:first-child,.grp>.slots:first-child{border-top:0}
+dialog.sheet{margin:auto;border-radius:16px;max-height:min(86vh,720px)}   /* 09-30 사용자: 화면 가운데 창 */
+dialog.sheet[open]{animation:sheetIn .16s ease-out}
+@keyframes sheetIn{from{transform:scale(.97);opacity:.6}to{transform:none;opacity:1}}
+.slots{display:flex;flex-wrap:wrap;gap:6px;padding:6px 0 4px}.slots .btn[aria-pressed="true"]{background:var(--accent);color:var(--accentInk)}
+.banner{position:fixed;left:16px;right:16px;top:calc(12px + env(safe-area-inset-top,0px));max-width:688px;margin:0 auto;background:var(--alert);color:#fff;padding:11px 14px;border-radius:10px;font-size:12.5px;font-weight:600;z-index:9;cursor:pointer}
+.toast{position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom,0px));max-width:688px;margin:0 auto;background:var(--ink);color:var(--bg);padding:11px 14px;border-radius:10px;font-size:12px;z-index:9}
+</style></head>
+<body>
+<header>
+  <div><h1>중계현황</h1><div class="sub"><span id="asof">불러오는 중…</span></div></div>
+  <div style="display:flex;gap:6px;align-items:center">
+    <button class="btn hot" id="reqBtn" type="button" hidden>접근 요청 <span id="reqN" class="num">0</span></button>
+    <button class="btn ico" id="bell" type="button" aria-label="알람 설정"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>알람</button>
+    <button class="btn ico" id="refresh" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>새로고침</button>
+  </div>
+</header>
+<div id="a2hs" class="a2hs" hidden>
+  <div class="a2hs_t">📲 홈 화면에 아이콘 만들기</div>
+  <div id="a2hs_body" class="a2hs_b"></div>
+  <div id="a2hs_acts" class="a2hs_acts"><button class="btn" type="button" id="a2hs_later">나중에</button><button class="btn" type="button" id="a2hs_done">이미 있어요</button><a class="btn hot" id="a2hs_go" target="_top" href="https://script.google.com/macros/s/AKfycbyVJvKp3CzT3Yffae6Og9BcQZrkIKczuK62B6GwxFZbBs33HLZF0MMAV4vadb3pSN1t/exec?home=1">아이콘 만들기</a></div>
+</div>
+
+<section><div class="tiles" id="tiles"></div></section>
+<section><h2>지금 봐야 할 차</h2><div class="list" id="att"></div></section>
+<section>
+  <h2>전체 운행</h2>
+  <div class="filters" id="filters"></div>
+  <div class="list" id="all"></div>
+</section>
+
+<section><h2>블랙리스트 <span class="small">BL관리 · 확정지연 많은 순</span></h2><div class="list" id="blList"></div></section>
+<section><h2>최근 지연 이력</h2><div class="list" id="delayList"></div></section>
+
+<div id="pop" class="pop" role="dialog" aria-label="기사님께 전화" hidden><span id="pop_who" class="who">기사님</span><a id="pop_go" class="callbtn" href="#">연결하기</a></div>
+<dialog id="dlg">
+  <h2 style="margin-top:0">접근 요청 · 공유 관리</h2>
+  <div id="reqs"></div>
+  <h2 style="margin-top:18px">볼 수 있는 직원 <span class="small">구글 계정</span></h2>
+  <div id="viewers"></div>
+  <h2 style="margin-top:18px">메일 링크 직원 <span class="small">네이버·다음 등 · 2분 안에 메일 발송</span></h2>
+  <div id="linkUsers"></div>
+  <div style="text-align:right;margin-top:14px"><button class="btn" type="button" id="close">닫기</button></div>
+</dialog>
+<dialog id="alarm" class="sheet">
+  <div class="sh_head"><b>알람 설정</b><button class="btn quiet" type="button" id="a_x" aria-label="닫기">✕</button></div>
+  <div id="pushBox" hidden>
+    <div class="grp_t">화면 꺼져도 알림 <span class="small">· 위험 차량이 새로 생기면 한 번</span></div>
+    <div class="grp">
+    <div class="slots" id="p_slots"><button class="btn" type="button" data-slot="all">올데이</button><button class="btn" type="button" data-slot="09-18">09~18시</button><button class="btn" type="button" data-slot="18-03">18~03시</button><button class="btn" type="button" data-slot="00-09">00~09시</button></div>
+    <div class="sw"><label for="p_silent">소리·진동 없이 팝업만</label><input type="checkbox" id="p_silent"></div>
+    <div class="sw"><span class="small" id="p_state"></span><span style="display:flex;gap:6px"><button class="btn" type="button" id="p_off">끄기</button><button class="btn hot" type="button" id="p_on">켜기</button></span></div>
+    </div>
+  </div>
+  <div class="grp_t">화면 켜져 있을 때 <span class="small">· 내 계정에만 저장</span></div>
+  <div class="grp">
+  <div class="sw"><label for="a_on">전체 알람</label><input type="checkbox" id="a_on"></div>
+  <div class="sw"><label for="a_sound">소리</label><input type="checkbox" id="a_sound"></div>
+  <div class="sw"><label for="a_vibrate">진동 <span class="small">(안드로이드)</span></label><input type="checkbox" id="a_vibrate"></div>
+  </div>
+  <div class="grp_t">경고 종류 <span class="small">· 끄면 목록에서도 빠짐</span></div>
+  <div class="grp" id="a_types"></div>
+  <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:10px"><button class="btn" type="button" id="a_test">소리 시험</button><button class="btn hot" type="button" id="a_save">저장</button></div>
+</dialog>
+<div class="banner" id="banner" hidden></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+const BELL='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>';
+const BELL_OFF='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8.7 3A6 6 0 0 1 18 8c0 2.7.4 4.6 1 6"/><path d="M17 17H3s3-2 3-9c0-.6.1-1.2.3-1.8"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/></svg>';
+const PHONE='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg>';
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const $=id=>document.getElementById(id);
+let DATA=null, FILTER='전체', SET=null, SEEN=null, AC=null;
+const TYPES=['연계불가','연계빠듯','기록확인','위험','지연','미출발','정차','밀림서행'];
+// 위험 순위(작을수록 위): 연계불가1 · 미하차 위험2 · 운행중단3 · 지연4 · 연계빠듯5 · 미출발6 · 도착임박7 · 기록확인8 · 정상10 · 도착(SUB 도착)11 — 09-30 사용자: 도착은 맨 아래
+function rankRow(r){ const st=String(r.status)+' '+String(r.note||''); if(/🔴|위험/.test(st))return 2; if(/⛔|중단/.test(st))return 3; if(/🟠|지연/.test(st))return 4;
+  if(/미출발/.test(st))return 6; if(/🟡|임박/.test(st))return 7; if(/🔵|SUB 도착/.test(String(r.status)))return 11; if(/🟢|정상/.test(st))return 10; return 8; }
+function rankLink(l){ return l.level==='불가'?1:l.level==='빠듯'?5:8; }
+// 09-30: 미출발 긴 문장('입고전 → 터미널 상차 평균 91분 → 입고 마감 3분 지연')은 마지막 결론만. ETA 없으면 흐린 '—'(TMAP 키 없을 때 전부 '확인중')
+function slackShort(v){ const t=String(v||'').trim(); if(t.indexOf('→')<0)return t; const last=t.split('→').pop().trim(); return last.replace(/^입고\s*/,''); }
+function etaText(e){ const t=String(e||'').trim(); return (!t||t==='확인중'||t==='-')?'<span style="opacity:.45">ETA —</span>':'ETA <span class="mono">'+esc(t)+'</span>'; }
+function num(v){ const m=String(v||'').replace(/,/g,'').match(/[-+]?\d+/); return m?Number(m[0]):0; }
+function stopMin(r){ const m=String(r.note||'').match(/정차\s*(\d+)분/); return m?Number(m[1]):0; }
+function byDanger(a,b){ return a.rank-b.rank || a.slackN-b.slackN || b.stopN-a.stopN; }
+function typesOfRow(r){ const t=[]; if(/🔴|위험/.test(r.status))t.push('위험'); if(/🟠|지연/.test(r.status))t.push('지연'); if(/미출발/.test(r.status+' '+r.note))t.push('미출발'); if(/정차/.test(r.note))t.push('정차'); if(/밀림|서행|🚚/.test(r.note))t.push('밀림서행'); return t; }
+function typeOfLink(l){ return l.level==='불가'?'연계불가':l.level==='빠듯'?'연계빠듯':'기록확인'; }
+function allowed(ts){ return !SET || ts.some(t=>SET.types[t]); }
+function beep(){ try{ AC=AC||new (window.AudioContext||window.webkitAudioContext)(); const o=AC.createOscillator(), g=AC.createGain(); o.connect(g); g.connect(AC.destination); o.frequency.value=880; g.gain.setValueAtTime(0.0001,AC.currentTime); g.gain.exponentialRampToValueAtTime(0.3,AC.currentTime+0.02); g.gain.exponentialRampToValueAtTime(0.0001,AC.currentTime+0.5); o.start(); o.stop(AC.currentTime+0.55);}catch(e){} }
+function notifyNew(d){
+  const keys=new Map();
+  (d.links||[]).forEach(l=>{const t=typeOfLink(l); if(!SET||SET.types[t]) keys.set(l.vehicle+'|'+t, l.vehicle+' 연계 '+l.level);});
+  (d.rows||[]).forEach(r=>typesOfRow(r).forEach(t=>{ if(!SET||SET.types[t]) keys.set(r.vehicle+'|'+t, r.vehicle+' '+t); }));
+  if(SEEN===null){ SEEN=new Set(keys.keys()); return; }          // 처음 연 때는 울리지 않음
+  const fresh=[...keys.keys()].filter(k=>!SEEN.has(k)); SEEN=new Set(keys.keys());
+  if(!fresh.length || !SET || !SET.on) return;
+  const b=$('banner'); b.textContent='새 경고 '+fresh.length+'건 · '+fresh.slice(0,3).map(k=>keys.get(k)).join(' · ')+(fresh.length>3?' …':''); b.hidden=false;
+  clearTimeout(window.__b); window.__b=setTimeout(()=>b.hidden=true,12000);
+  if(SET.sound) beep(); if(SET.vibrate && navigator.vibrate) navigator.vibrate([200,100,200]);
+}
+function color(status,note){ if(/미출발/.test(String(status)+' '+String(note||'')))return 'var(--undep)'; if(/🔴|위험/.test(status))return 'var(--alert)'; if(/🟠|지연/.test(status))return 'var(--move)'; if(/🟡|임박/.test(status))return 'var(--soon)';
+  if(/🟢|정상/.test(status))return 'var(--ok)'; if(/🔵|SUB/.test(status))return 'var(--sub)'; if(/⛔|중단/.test(status))return 'var(--wait)'; return 'var(--wait)'; }
+function plain(st){ return String(st||'').replace(/^[\u{1F300}-\u{1FAFF}\u2600-\u27BF\u26D4\uFE0F\s]+/u,'').trim(); }
+function txtColor(st,note){ const c=color(st,note); return c==='var(--soon)'?'var(--soonText)':c; }
+// 09-30 사용자: 차량번호 누르면 차량번호와 노선 사이에 번호 너비만한 말풍선 '📞 ○○○ 기사님 연결'(번호 다시 누르면 닫힘). 한 번에 하나만(다른 차 누르면 앞 말풍선 닫힘), 1분 새로고침 뒤에도 유지
+function veh(v,phone,driver){ return phone?'<button type="button" class="call mono" data-pop="'+esc(phone)+'" data-v="'+esc(v)+'" data-d="'+esc(driver||'')+'" aria-haspopup="dialog">'+PHONE+esc(v)+'</button>':'<span class="nocall mono">'+esc(v)+'</span>'; }
+function callRow(r){ return ''; }
+// 떠 있는 작은 팝업(번호 바로 아래, 목록 위에 겹침). 바깥·다른 번호·스크롤이면 닫힘
+function closePop(){ const p=$('pop'); if(p){ p.hidden=true; p.dataset.v=''; } }
+function openPop(btn){ const p=$('pop'); if(p.dataset.v===btn.dataset.v && !p.hidden){ closePop(); return; } const r=btn.getBoundingClientRect(), row=btn.closest('.row'), rr=row?row.getBoundingClientRect():r; const d=btn.dataset.d; $('pop_who').textContent=(d?d+' ':'')+'기사님'; $('pop_go').setAttribute('href','tel:'+btn.dataset.pop); $('pop_go').innerHTML=PHONE+'연결'; p.style.minWidth=''; p.hidden=false; const h=p.offsetHeight||26; const top=Math.min(r.bottom+4, rr.bottom-h-3); p.style.left=(r.left+window.scrollX)+'px'; p.style.top=(top+window.scrollY)+'px'; p.dataset.v=btn.dataset.v; }   // 09-30 사용자: 그 차 칸 밖으로 넘어가지 않게(한 줄·칸 아래끝 안쪽으로)
+
+function phoneOf(v){ const r=(DATA.rows||[]).find(x=>x.vehicle===v); return r?r.phone:''; }
+function notes(n,st){ return (n||'').split(/\s*·\s*/).filter(t=>t && t!==plain(st)).map(t=>'<span class="chip'+(/미출발|정차|밀림|서행|🚚/.test(t)?' warn':'')+'">'+esc(t)+'</span>').join(''); }
+function rowHtml(r){ return '<div class="row"><span class="sev" style="background:'+color(r.status,r.note)+'"></span><div class="main"><div class="top">'+veh(r.vehicle,r.phone,r.driver)+(r.bl?'<span class="chip bl" title="BL관리 대상 차량·기사">BL</span>':'')+'<span class="chip st" style="--c:'+txtColor(r.status,r.note)+'">'+esc(plain(r.status))+'</span>'+notes(r.note,r.status)+'</div>'+callRow(r)+'<span class="route">'+esc(r.route)+(r.memo?' · '+esc(r.memo):'')+'</span></div><div class="right"><div class="big num" title="'+esc(r.slack||'')+'">'+esc(slackShort(r.slack))+'</div><div class="small">'+etaText(r.eta)+'</div></div></div>'; }
+function linkHtml(l){ const c=l.level==='불가'?'var(--alert)':l.level==='빠듯'?'var(--move)':'var(--wait)';
+  const right=l.level==='기록확인'?'<div class="big">기록확인</div><div class="small">다음 입고 <span class="mono">'+esc(l.plan)+'</span></div>':'<div class="big num" style="color:color-mix(in srgb,'+c+' 62%,var(--ink))">'+(Number(l.slack)>0?'+':'')+esc(l.slack)+'분</div><div class="small">계획 <span class="mono">'+esc(l.plan)+'</span> · 준비 <span class="mono">'+esc(l.ready)+'</span></div>';
+  return '<div class="row"><span class="sev" style="background:'+c+'"></span><div class="main"><div class="top">'+veh(l.vehicle,phoneOf(l.vehicle))+'<span class="chip warn">연계 '+esc(l.level)+'</span></div><span class="route">'+esc(l.from)+' 도착 → '+esc(l.leg)+'</span></div><div class="right">'+right+'</div></div>'; }
+const FILTERS={'전체':()=>true,'위험':r=>/🔴|위험/.test(r.status),'지연':r=>/🟠|지연/.test(r.status),'미출발':r=>/미출발/.test(r.status+r.note),'정상':r=>/🟢|정상/.test(r.status),'BL':r=>!!r.bl};
+function render(d,cached){ closePop();
+  DATA=d; $('asof').textContent=cached?cached:(d.asof?d.asof+' · ':'')+'1분마다 자동 갱신';
+  if(!cached){ document.body.classList.remove('stale'); try{ localStorage.setItem(CK,JSON.stringify({t:Date.now(),d:d,s:SET})); }catch(e){} }
+  const c=d.counts||{}, pick=re=>Object.keys(c).filter(k=>re.test(k)).reduce((s,k)=>s+c[k],0);
+  $('tiles').innerHTML=[['전체',d.rows.length,'var(--ink)'],['위험',pick(/위험/),'var(--alert)'],['지연',pick(/지연/),'var(--move)'],['연계 경고',(d.links||[]).filter(l=>l.level!=='기록확인').length,'var(--accent)']]
+    .map(([k,v,col])=>'<div class="tile"><div class="k">'+k+'</div><div class="v num" style="color:'+col+'">'+v+'</div></div>').join('');
+  const hot=d.rows.filter(r=>{const t=typesOfRow(r); return t.length && allowed(t);});
+  const items=(d.links||[]).filter(l=>allowed([typeOfLink(l)])).map(l=>({rank:rankLink(l),slackN:l.slack===''?0:num(l.slack),stopN:0,html:linkHtml(l)}))
+    .concat(hot.map(r=>({rank:rankRow(r),slackN:num(r.slack),stopN:stopMin(r),html:rowHtml(r)})));
+  const att=items.sort(byDanger).slice(0,30).map(x=>x.html);
+  $('att').innerHTML=att.length?att.join(''):'<div class="empty">지금 따로 볼 차가 없습니다.</div>';
+  $('filters').innerHTML=Object.keys(FILTERS).map(k=>'<button class="btn" type="button" data-f="'+k+'" aria-pressed="'+(k===FILTER)+'">'+k+'</button>').join('');
+  const list=d.rows.filter(FILTERS[FILTER]).map(r=>({r,rank:rankRow(r),slackN:num(r.slack),stopN:stopMin(r)})).sort(byDanger).map(x=>x.r);
+  $('all').innerHTML=list.length?list.map(rowHtml).join(''):'<div class="empty">해당하는 운행이 없습니다.</div>';
+  $('blList').innerHTML=(d.bl||[]).length?d.bl.map(b=>'<div class="mini"><div><span class="chip bl">BL</span> '+veh(b.vehicle,phoneOf(b.vehicle))+'<div class="small">'+esc(b.route)+(b.reason?' · '+esc(b.reason):'')+'</div></div><div class="right"><div class="big num">'+esc(b.delays)+'건</div><div class="small">지연율 '+esc(b.rate)+(b.last?' · 최근 '+esc(b.last):'')+'</div></div></div>').join(''):'<div class="empty">BL관리 대상이 없습니다.</div>';
+  $('delayList').innerHTML=(d.delays||[]).length?d.delays.map(x=>'<div class="mini"><div>'+veh(x.vehicle,phoneOf(x.vehicle))+'<div class="small">'+esc(x.date)+' · '+esc(x.from)+' → '+esc(x.to)+(x.reason?' · '+esc(x.reason):'')+'</div></div><div class="right"><div class="big num" style="color:color-mix(in srgb,var(--alert) 62%,var(--ink))">+'+esc(x.min)+'분</div></div></div>').join(''):'<div class="empty">지연 기록이 없습니다.</div>';
+  $('reqBtn').hidden=!d.isOwner; $('reqN').textContent=d.pending||0; $('reqBtn').className='btn '+((d.pending||0)>0?'hot':'quiet');   // 09-30: 요청 없으면 회색
+  $('bell').innerHTML=(SET&&!SET.on)?BELL_OFF+'알람 꺼짐':BELL+'알람';
+  if(!cached) notifyNew(d);   // 저장해 둔 화면으로는 알람 안 울림
+}
+function load(fresh){ google.script.run.withSuccessHandler(d=>render(d)).withFailureHandler(e=>toast('불러오지 못했습니다: '+e.message)).getData(!!fresh); }
+// 09-30 로딩 속도: 직전에 본 화면(30분 이내)을 먼저 흐리게 보여주고 '몇 시 자료 · 갱신 중'. 새 자료가 오면 바꿔 끼움.
+const CK='dashCache_v1';
+function showCached(){ let c=null; try{ c=JSON.parse(localStorage.getItem(CK)||'null'); }catch(e){}
+  if(!c||!c.d||!c.t||Date.now()-c.t>30*60e3) return;
+  if(c.s&&!SET) SET=c.s; const t=new Date(c.t);
+  document.body.classList.add('stale');
+  try{ render(c.d, String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')+' 자료 · 갱신 중…'); }catch(e){ document.body.classList.remove('stale'); } }
+function toast(m){ const t=$('toast'); t.textContent=m; t.hidden=false; clearTimeout(window.__t); window.__t=setTimeout(()=>t.hidden=true,3500); }
+function renderAccess(a){
+  $('reqs').innerHTML=a.requests.length?a.requests.map(r=>'<div class="req"><div><b>'+esc(r.name)+'</b><div class="small mono">'+esc(r.email)+' · '+esc(r.at)+'</div></div><div class="acts"><button class="btn ok" type="button" data-ok="'+r.row+'">승인</button><button class="btn no" type="button" data-no="'+r.row+'">거절</button></div></div>').join(''):'<div class="empty">대기 중인 요청이 없습니다.</div>';
+  const lst=a.links||[];
+  $('linkUsers').innerHTML=lst.length?lst.map(r=>'<div class="req"><div><b>'+esc(r.name)+'</b><div class="small mono">'+esc(r.email)+'</div><div class="small">'+esc(r.status==='승인'?(r.done||''):r.status+' 처리 중…')+'</div></div><div class="acts"><button class="btn" type="button" data-lk="resend" data-row="'+r.row+'">다시 보내기</button><button class="btn" type="button" data-lk="reset" data-row="'+r.row+'">기기 초기화</button><button class="btn no" type="button" data-lk="revoke" data-row="'+r.row+'">해제</button></div></div>').join(''):'<div class="empty">메일 링크로 보는 직원이 없습니다.</div>';
+  $('viewers').innerHTML=a.viewers.length?a.viewers.map(v=>'<div class="req"><span class="mono">'+esc(v)+'</span><button class="btn no" type="button" data-rv="'+esc(v)+'">해제</button></div>').join(''):'<div class="empty">아직 공유된 직원이 없습니다.</div>';
+}
+document.addEventListener('click',e=>{
+  const f=e.target.closest('[data-f]'); if(f){FILTER=f.dataset.f; render(DATA); return;}
+  const pb=e.target.closest('[data-pop]'); if(pb){ openPop(pb); return; }
+  if(!e.target.closest('#pop')) closePop();
+  const ok=e.target.closest('[data-ok]'), no=e.target.closest('[data-no]'), rv=e.target.closest('[data-rv]');
+  const done=a=>{renderAccess(a); load();}; const fail=err=>toast(err.message);
+  if(ok){ ok.disabled=true; google.script.run.withSuccessHandler(a=>{toast('승인했습니다. 구글 메일은 링크를 다시 열면 보이고, 다른 메일은 2분 안에 열기 링크 메일이 갑니다.'); done(a);}).withFailureHandler(fail).approveAccess(Number(ok.dataset.ok)); }
+  const lkb=e.target.closest('[data-lk]');
+  if(lkb){ const act=lkb.dataset.lk; if(act==='revoke'&&!confirm('이 직원의 링크를 끊을까요?')) return; lkb.disabled=true; google.script.run.withSuccessHandler(a=>{toast({resend:'새 링크를 2분 안에 다시 보냅니다(예전 링크는 막힘).',reset:'기기를 풀었습니다. 그 직원이 링크를 다시 누르면 새 폰으로 묶입니다.',revoke:'링크를 끊습니다(2분 안에 반영).'}[act]); done(a);}).withFailureHandler(fail).linkAction(Number(lkb.dataset.row),act); }
+  if(no){ no.disabled=true; google.script.run.withSuccessHandler(a=>{toast('거절했습니다.'); done(a);}).withFailureHandler(fail).denyAccess(Number(no.dataset.no)); }
+  if(rv){ rv.disabled=true; google.script.run.withSuccessHandler(a=>{toast('권한을 해제했습니다.'); done(a);}).withFailureHandler(fail).revokeAccess(rv.dataset.rv); }
+});
+$('refresh').onclick=()=>load(true);
+// 09-30 사용자: "아이콘 바탕화면에 만드는거 쉽게" + "없는 사람만". 폰은 웹이 스스로 아이콘을 못 만들고, 아이콘이 있는지도 모른다
+//  → 아이콘은 ?home=1 주소로 만들게 한다. ?home=1 로 열리면 = 아이콘으로 들어온 것 → 다시는 안 띄움.
+//  ① 일반 주소: [아이콘 만들기] → ?home=1 로 이동(step 기록)  ② ?home=1 + 방금 이동(10분 안): 폰별 한 줄 안내 한 번만  ③ 그 뒤 ?home=1 = 안내 없음
+(function(){ const HOME='1'==='1'; let st={}; try{ st=JSON.parse(localStorage.getItem('a2hs')||'{}'); }catch(e){}
+  const save=o=>{ try{ localStorage.setItem('a2hs',JSON.stringify(o)); }catch(e){} };
+  const ua=navigator.userAgent||''; const ios=/iPhone|iPad|iPod/.test(ua), android=/Android/.test(ua);
+  if(HOME){ const fresh=st.step && Date.now()-st.step<10*60e3; save({done:1}); if(!fresh || (!ios && !android)) return;
+    $('a2hs_body').innerHTML = '지금 이 화면에서 ' + (ios ? '사파리 아래쪽 <b>공유(□↑)</b> → <b>홈 화면에 추가</b> → <b>추가</b>' : '크롬 오른쪽 위 <b>⋮</b> → <b>홈 화면에 추가</b> → <b>바로가기 만들기</b> → <b>추가</b>');
+    $('a2hs_acts').innerHTML='<button class="btn hot" type="button" id="a2hs_ok">확인</button>'; $('a2hs').hidden=false; $('a2hs_ok').onclick=()=>{ $('a2hs').hidden=true; }; return; }
+  if(st.done || (st.later && Date.now()-st.later<3*864e5)) return;
+  if(!ios && !android) return;
+  $('a2hs_body').textContent='아래 [아이콘 만들기]를 누르면 아이콘용 화면이 열리고, 만드는 방법이 한 줄로 나와요.';
+  $('a2hs').hidden=false;
+  $('a2hs_done').onclick=()=>{ save({done:1}); $('a2hs').hidden=true; }; $('a2hs_later').onclick=()=>{ save({later:Date.now()}); $('a2hs').hidden=true; };
+  $('a2hs_go').onclick=()=>save({step:Date.now()});
+})();
+
+window.addEventListener('scroll',closePop,{passive:true});
+document.addEventListener('pointerdown',e=>{ if(!e.target.closest('#pop') && !e.target.closest('[data-pop]')) closePop(); },{passive:true});   // 09-30: 바깥(배경) 닿는 순간 닫힘 — 폰에서 빈 곳 탭이 click 으로 안 오는 경우 대비
+function openAlarm(){ const s=SET||{on:true,sound:true,vibrate:true,types:{}}; $('a_on').checked=s.on; $('a_sound').checked=s.sound; $('a_vibrate').checked=s.vibrate;
+  $('a_types').innerHTML=TYPES.map(t=>'<div class="sw"><label for="t_'+t+'">'+t.replace('연계불가','연계 불가').replace('연계빠듯','연계 빠듯').replace('밀림서행','밀림·서행')+'</label><input type="checkbox" id="t_'+t+'" data-t="'+t+'"'+(s.types[t]?' checked':'')+'></div>').join(''); $('alarm').showModal(); }
+$('bell').onclick=()=>{ beep.warm=1; try{AC=AC||new (window.AudioContext||window.webkitAudioContext)(); AC.resume();}catch(e){} openAlarm(); };
+$('a_x').onclick=()=>$('alarm').close();
+$('alarm').addEventListener('click',e=>{ if(e.target===$('alarm')) $('alarm').close(); });   // 바깥(어두운 곳) 누르면 닫힘
+$('a_test').onclick=()=>{ beep(); if(navigator.vibrate) navigator.vibrate([200,100,200]); };
+$('a_save').onclick=()=>{ const s={on:$('a_on').checked,sound:$('a_sound').checked,vibrate:$('a_vibrate').checked,types:{}}; document.querySelectorAll('[data-t]').forEach(x=>s.types[x.dataset.t]=x.checked);
+  google.script.run.withSuccessHandler(v=>{SET=v; $('alarm').close(); toast('알람 설정을 저장했습니다.'); if(DATA) render(DATA);}).withFailureHandler(e=>toast(e.message)).saveSettings(s); };
+// 09-30 폰 알림(설치 앱에서만): 켜기/끄기는 바깥 설치 앱(깃허브 페이지)이 처리 → 구독 정보를 push= 로 돌려주면 여기서 중계 서버에 등록
+const SHELL='1'==='1', PST=(PUSHST.pst||''), PSL=(PUSHST.psl?'1':'')==='1', API=RELAY, PUSHREQ=null;
+const SLOT_TXT={'all':'올데이','09-18':'09~18시','18-03':'18~03시','00-09':'00~09시'};
+let PSLOT=(PST&&PST!=='off')?PST:'all';
+function paintPush(){ document.querySelectorAll('[data-slot]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.slot===PSLOT))); $('p_silent').checked=PSL;
+  $('p_state').textContent=(PST&&PST!=='off')?'지금: 켜짐 · '+SLOT_TXT[PST]+(PSL?' · 팝업만':' · 소리·진동'):'지금: 꺼짐'; }
+if(SHELL){ $('pushBox').hidden=false; paintPush();
+  $('p_slots').onclick=e=>{ const b=e.target.closest('[data-slot]'); if(!b) return; PSLOT=b.dataset.slot; document.querySelectorAll('[data-slot]').forEach(x=>x.setAttribute('aria-pressed',String(x===b))); };
+  const ask=on=>{ try{ window.top.postMessage({type:'relay-push',on:on,slot:PSLOT,silent:$('p_silent').checked},'https://sinmu911.github.io'); toast(on?'알림 허용 창이 뜨면 [허용]을 눌러 주세요.':'알림을 끄는 중…'); }catch(e){ toast('설치한 앱에서만 됩니다.'); } };
+  $('p_on').onclick=()=>ask(true); $('p_off').onclick=()=>ask(false); }
+if(PUSHREQ){
+  if(PUSHREQ.error) toast(PUSHREQ.error==='NOT_READY'?'알림 준비 중입니다. 몇 분 뒤 다시 켜 주세요.':'알림 등록에 실패했습니다('+PUSHREQ.error+').');
+  else if(API){ const b=new URLSearchParams({action:'push_subscribe',email:PUSHREQ.email,ts:PUSHREQ.ts,token:PUSHREQ.token,data:PUSHREQ.data});
+    fetch(API,{method:'POST',mode:'no-cors',body:b}).then(()=>toast(PST==='off'?'알림을 껐습니다.':'등록했습니다. 곧 "알림이 켜졌어요" 알림이 옵니다.')).catch(()=>toast('알림 등록 요청을 보내지 못했습니다.')); }
+}
+$('banner').onclick=()=>{ $('banner').hidden=true; window.scrollTo({top:0,behavior:'smooth'}); };
+document.addEventListener('click',()=>{ try{ if(AC) AC.resume(); }catch(e){} },{once:true});
+$('reqBtn').onclick=()=>{ google.script.run.withSuccessHandler(a=>{renderAccess(a); $('dlg').showModal();}).withFailureHandler(e=>toast(e.message)).listAccess(); };
+$('close').onclick=()=>$('dlg').close();
+showCached(); load(); google.script.run.withSuccessHandler(v=>{SET=v; if(DATA&&!document.body.classList.contains('stale')) render(DATA); else if(DATA) $('bell').innerHTML=(SET&&!SET.on)?BELL_OFF+'알람 꺼짐':BELL+'알람';}).getSettings(); setInterval(()=>{ if(!document.hidden) load(); },60000);
+</script>
+</body></html>

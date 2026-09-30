@@ -14,6 +14,7 @@
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Apple SD Gothic Neo",sans-serif}
 #app{position:fixed;inset:0;width:100%;height:100%;border:0;display:none;background:var(--bg)}
+#stoast{position:fixed;left:50%;top:calc(12px + env(safe-area-inset-top));transform:translateX(-50%);display:none;z-index:5;font-size:12px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:8px 12px;box-shadow:0 4px 14px rgba(0,0,0,.12);max-width:calc(100% - 32px)}
 #retry{position:fixed;left:50%;bottom:calc(10px + env(safe-area-inset-bottom));transform:translateX(-50%);display:none;font-size:11px;color:var(--muted);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:5px 11px;text-decoration:none}
 main{max-width:360px;margin:0 auto;padding:56px 16px 32px;text-align:center}
 main img{width:84px;height:84px;border-radius:20px}
@@ -22,9 +23,11 @@ p{font-size:13px;color:var(--muted);line-height:1.6;margin:0 0 20px}
 .btn{display:block;width:100%;padding:12px;border-radius:12px;border:0;font-size:14px;font-weight:600;text-decoration:none;cursor:pointer;margin-bottom:8px}
 .hot{background:var(--accent);color:var(--accentInk)}
 .plain{background:var(--surface);color:var(--ink);border:1px solid var(--line)}
+.inp{display:block;width:100%;padding:11px 12px;margin-bottom:8px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font-size:14px}
 #how{font-size:12.5px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px;display:none;text-align:left;line-height:1.6}
 </style></head><body>
 <iframe id="app" title="중계현황" allow="clipboard-write"></iframe>
+<div id="stoast"></div>
 <a id="retry" target="_blank" rel="noopener">화면이 안 나오면 여기 (로그인)</a>
 <main id="home" hidden>
   <img src="icon-192.png" alt="">
@@ -32,11 +35,50 @@ p{font-size:13px;color:var(--muted);line-height:1.6;margin:0 0 20px}
   <p>홈 화면에 아이콘을 만들면<br>앱처럼 주소창 없이 바로 열려요.</p>
   <button id="install" class="btn hot" type="button">앱 설치</button>
   <div id="how"></div>
-  <a id="open" class="btn plain">설치 없이 그냥 보기</a>
+  <a id="open" class="btn plain">설치 없이 그냥 보기 (구글 계정)</a>
+  <details id="reqBox" style="margin-top:18px;text-align:left">
+    <summary style="font-size:13px;color:var(--muted);cursor:pointer;text-align:center">처음 쓰시나요? · 사용 요청</summary>
+    <p style="margin:10px 0 8px;font-size:12.5px">이름과 이메일(네이버·다음·카카오 무엇이든)을 적으면, 사장님이 승인한 뒤 <b>그 메일로 열기 링크</b>가 가요.</p>
+    <input id="rq_name" class="inp" maxlength="40" placeholder="이름" autocomplete="name">
+    <input id="rq_mail" class="inp" type="email" maxlength="120" placeholder="이메일" autocomplete="email">
+    <button id="rq_go" class="btn hot" type="button">사용 요청 보내기</button>
+    <div id="rq_msg" style="font-size:12.5px;color:var(--muted);text-align:center"></div>
+  </details>
 </main>
 <script>
 // 09-30 중계현황 설치용 껍데기. 대시보드 본체는 Apps Script 그대로(여기엔 자료 없음).
 const DASH='https://script.google.com/macros/s/AKfycbyVJvKp3CzT3Yffae6Og9BcQZrkIKczuK62B6GwxFZbBs33HLZF0MMAV4vadb3pSN1t/exec?home=1';
+const RELAY='https://script.google.com/macros/s/AKfycbykIRIGlFno8lyQBnJOKn9he9zZ6MTcQi0QIIKvcBOgsgkqGqYa3rDDP2PmcPqcgfq3Iw/exec';   // 중계 서버(사용 요청·링크 자료)
+const VAPID_PUB='BPjT-uoIsc2w_HiYBkR2r8Jf4wGuvC2FmXcbubZn2W1NZjx1g8sa9-9lTeX62amw5mA2JTVqOouKkvbRM8AOL8I';   // 알림 보내는 쪽(Mac) 공개키 — 비밀 아님
+function pget(){ try{ return JSON.parse(localStorage.getItem('push')||'{}'); }catch(e){ return {}; } }
+function pset(o){ try{ localStorage.setItem('push',JSON.stringify(o)); }catch(e){} }
+function dashUrl(extra){ const p=pget(); return DASH+'&shell=1'+(p.pst?'&pst='+p.pst:'')+(p.psl?'&psl=1':'')+(extra||''); }
+function stoast(m){ const t=document.getElementById('stoast'); t.textContent=m; t.style.display='block'; clearTimeout(window.__st); window.__st=setTimeout(()=>t.style.display='none',5000); }
+function b64u(str){ return btoa(unescape(encodeURIComponent(str))).replace(/\+/g,'-').replace(/\//g,'_'); }
+function keyBytes(k){ const s=atob(k.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-k.length%4)%4)); return Uint8Array.from(s,c=>c.charCodeAt(0)); }
+// 대시보드(안쪽 화면)의 [켜기]/[끄기] → 여기서 알림 허용·구독 → 구독 정보를 대시보드 주소(push=)로 넘겨 등록
+window.addEventListener('message',async ev=>{
+  if(!/^https:\/\/[a-z0-9-]+-script\.googleusercontent\.com$/.test(ev.origin)) return;
+  const m=ev.data||{}; if(m.type!=='relay-push') return;
+  const slot=['all','09-18','18-03','00-09'].includes(m.slot)?m.slot:'all', silent=!!m.silent;
+  try{
+    if(!('serviceWorker' in navigator)||!('PushManager' in window)){ stoast('이 폰 브라우저는 알림을 지원하지 않아요.'); return; }
+    const reg=await navigator.serviceWorker.ready;
+    if(m.on){
+      const perm=await Notification.requestPermission();
+      if(perm!=='granted'){ stoast('알림이 차단돼 있어요. 폰 설정 → 앱 → 중계현황 → 알림을 켜 주세요.'); return; }
+      const sub=(await reg.pushManager.getSubscription())||(await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:keyBytes(VAPID_PUB)}));
+      const j=sub.toJSON(); pset({pst:slot,psl:silent});
+      document.getElementById('app').src=dashUrl('&push='+encodeURIComponent(b64u(JSON.stringify({endpoint:j.endpoint,keys:j.keys,slot:slot,silent:silent}))));
+    } else {
+      const sub=await reg.pushManager.getSubscription(); pset({pst:'off',psl:false});
+      if(!sub){ document.getElementById('app').src=dashUrl(); stoast('알림을 껐어요.'); return; }
+      const j=sub.toJSON();
+      document.getElementById('app').src=dashUrl('&push='+encodeURIComponent(b64u(JSON.stringify({endpoint:j.endpoint,keys:j.keys,slot:slot,silent:silent,off:true}))));
+      setTimeout(()=>sub.unsubscribe().catch(()=>{}),8000);
+    }
+  }catch(e){ stoast('알림 설정 실패: '+(e&&e.message||e)); }
+});
 const ua=navigator.userAgent||'';
 const ios=/iPhone|iPad|iPod/.test(ua), android=/Android/.test(ua);
 const inApp=/KAKAOTALK|NAVER\(inapp|Line\/|Instagram|FBAN|FBAV|DaumApps/i.test(ua);
@@ -49,10 +91,16 @@ if(/KAKAOTALK/i.test(ua)){
   // 카톡 안 브라우저 → 폰 기본 브라우저(크롬/사파리)로 넘김
   location.href='kakaotalk://web/openExternal?url='+encodeURIComponent(location.href);
 } else if(inApp && android){
-  location.href='intent://'+location.host+location.pathname+'#Intent;scheme=https;package=com.android.chrome;end';
+  location.href='intent://'+location.host+location.pathname+location.search+'#Intent;scheme=https;package=com.android.chrome;end';   // 09-30: 메일 링크 열쇠(?t=)도 같이 넘김
+} else if(/^[0-9a-f]{64}$/.test(new URLSearchParams(location.search).get('t')||'')){
+  // 09-30 이메일 개인 링크: 열쇠를 폰에 저장하고 링크 화면으로(아이폰은 홈 화면 앱이 따로 저장소를 써서 주소에 열쇠를 남김)
+  const tk=new URLSearchParams(location.search).get('t'); try{ localStorage.setItem('lt',tk); }catch(e){}
+  location.replace(ios?'app.html?t='+tk:'app.html');
+} else if((function(){ try{ return /^[0-9a-f]{64}$/.test(localStorage.getItem('lt')||''); }catch(e){ return false; } })()){
+  location.replace('app.html');   // 이미 링크로 연 폰(아이콘으로 열어도 여기로)
 } else if(standalone){
   if(ios){ location.replace(DASH); }
-  else { $('app').src=DASH; $('app').style.display='block';
+  else { $('app').src=dashUrl(); $('app').style.display='block';
     $('retry').style.display='block'; setTimeout(()=>{ $('retry').style.display='none'; },10000); }
 } else {
   $('home').hidden=false;
@@ -60,6 +108,14 @@ if(/KAKAOTALK/i.test(ua)){
   const how=t=>{ $('how').innerHTML=t; $('how').style.display='block'; };
   window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferred=e; });
   window.addEventListener('appinstalled',()=>{ how('설치됐어요. 홈 화면의 <b>중계현황</b> 아이콘으로 여세요.'); $('install').style.display='none'; });
+  $('rq_go').onclick=async()=>{
+    const name=$('rq_name').value.trim(), email=$('rq_mail').value.trim().toLowerCase();
+    if(!name){ $('rq_msg').textContent='이름을 적어 주세요.'; return; }
+    if(!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email)){ $('rq_msg').textContent='이메일을 확인해 주세요.'; return; }
+    $('rq_go').disabled=true;
+    try{ await fetch(RELAY,{method:'POST',mode:'no-cors',body:new URLSearchParams({action:'access_request',name:name,email:email})}); $('rq_msg').innerHTML='요청했어요. 승인되면 <b>'+email.replace(/[<>&]/g,'')+'</b> 로 열기 링크가 가요.<br>(메일이 안 보이면 스팸함도 봐 주세요)'; }
+    catch(e){ $('rq_msg').textContent='보내지 못했어요. 잠시 뒤 다시 해 주세요.'; $('rq_go').disabled=false; }
+  };
   $('install').onclick=async()=>{
     if(deferred){ deferred.prompt(); const r=await deferred.userChoice.catch(()=>null); deferred=null; if(r&&r.outcome==='accepted') return; }
     if(ios) how('사파리 아래쪽 <b>공유(□↑)</b> → <b>홈 화면에 추가</b> → <b>추가</b>');
