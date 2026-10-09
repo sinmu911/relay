@@ -221,7 +221,7 @@ class NeoStore:
             post.errors.append(f"완성본 경로가 블로그_NEO 밖이거나 비었어요: {entry.get('md', '')}")
             return post
         try:
-            text = nfc(p.read_text(encoding="utf-8").lstrip("﻿").replace("\r\n", "\n"))
+            text = nfc(p.read_text(encoding="utf-8").lstrip(chr(0xFEFF)).replace("\r\n", "\n"))
         except (OSError, UnicodeDecodeError) as e:
             post.errors.append(f"완성본을 못 읽어요: {p.name} ({e})")
             return post

@@ -70,7 +70,7 @@ class Post:
 
 def normalize_text(raw: str) -> str:
     """BOM·윈도우 줄바꿈 차이로 같은 글이 다른 글로 보이지 않게 맞춘다."""
-    return raw.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
+    return raw.lstrip(chr(0xFEFF)).replace("\r\n", "\n").replace("\r", "\n")
 
 
 def normalize_title(title: str) -> str:
