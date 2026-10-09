@@ -148,3 +148,20 @@ def test_blog_section_post_in_editor(base_url, tmp_path):
     assert order == ["img:테스트_00_대표.png", "text", "img:테스트_01_지도.png", "text"]
     html = " ".join(c["html"] for c in sub["comps"] if c.get("text"))
     assert "<strong>굵게</strong>" in html and "color:#0075c8" in html and "<strong>■ 하루 순서</strong>" in html
+
+
+@pytest.mark.parametrize("persist,expected", [("1", []), ("0", ["NID_AUT", "NID_SES"])])
+def test_interactive_login_waits_for_flow_end_and_reports_session_cookies(base_url, tmp_path, persist, expected):
+    from naver_editor import interactive_login
+    status, session_only = interactive_login(
+        tmp_path / "profile", f"{base_url}/loginflow.html?persist={persist}", wait_seconds=20,
+        login_marker="loginflow", cookie_urls=(base_url,), headless=True, settle_ms=200)
+    assert status == "ok"
+    assert session_only == expected
+
+
+def test_check_login(base_url, tmp_path):
+    with publisher(tmp_path, f"{base_url}/editor.html") as pub:
+        assert pub.check_login() is True
+    with publisher(tmp_path, f"{base_url}/nidlogin.html", login_marker="nidlogin") as pub:
+        assert pub.check_login() is False

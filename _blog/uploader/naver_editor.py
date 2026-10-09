@@ -11,7 +11,7 @@ import re
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Frame, Locator, Page, sync_playwright
@@ -21,7 +21,8 @@ from blogpost import Post, Segment, html_to_lines
 log = logging.getLogger(__name__)
 
 WRITE_URL = "https://blog.naver.com/{blog_id}?Redirect=Write&"
-LOGIN_URL = "https://nid.naver.com/nidlogin.login"
+LOGIN_URL = "https://nid.naver.com/nidlogin.login?mode=form&url=https%3A%2F%2Fblog.naver.com%2F"
+COOKIE_URLS = ("https://nid.naver.com", "https://blog.naver.com")
 LOGIN_MARKER = "nid.naver.com"
 AUTH_COOKIES = ("NID_AUT", "NID_SES")
 
@@ -174,6 +175,20 @@ class NaverPublisher:
             if clicked_final:
                 raise AmbiguousPublishError(f"발행 누른 뒤 오류: {e}") from e
             raise EditorError(f"화면 조작 오류: {e}{self._dialog_note()}") from e
+        finally:
+            try:
+                page.close()
+            except PlaywrightError:
+                pass
+
+    def check_login(self) -> bool:
+        """글쓰기 화면을 열어 본다 — 진짜 올릴 때와 똑같은 길로 로그인이 남아 있는지 확인."""
+        page = self._ctx.new_page()
+        try:
+            self._open_editor(page)
+            return True
+        except NotLoggedInError:
+            return False
         finally:
             try:
                 page.close()
@@ -352,30 +367,52 @@ class NaverPublisher:
         return None
 
 
-def interactive_login(profile_dir: Path, login_url: str = LOGIN_URL, wait_seconds: int = 600) -> bool:
-    """로그인 창을 띄우고 사장님이 직접 로그인할 때까지 기다린다. 로그인 정보는 profile_dir 에만 남는다."""
+def interactive_login(profile_dir: Path, login_url: str = LOGIN_URL, wait_seconds: int = 600,
+                      login_marker: str = LOGIN_MARKER, cookie_urls=COOKIE_URLS,
+                      headless: bool = False, settle_ms: int = 2000) -> Tuple[str, List[str]]:
+    """로그인 창을 띄우고 사장님이 직접 로그인할 때까지 기다린다. 로그인 정보는 profile_dir 에만 남는다.
+
+    돌려주는 값: (결과, 창을 닫으면 사라지는 로그인 쿠키 이름들)
+      결과 = "ok"(로그인 끝나고 로그인 화면을 벗어남) | "closed"(창이 닫힘) | "timeout"
+    쿠키 이름만 보고 바로 닫으면 '기기 등록' 같은 뒷단계가 덜 끝났거나, '로그인 상태 유지'가 꺼져
+    창을 닫는 순간 로그인이 지워질 수 있다. 그래서 로그인 화면을 벗어날 때까지 기다리고,
+    저장됐는지는 다시 열어서 확인한다(naver_upload.py login).
+    """
     Path(profile_dir).mkdir(parents=True, exist_ok=True)
+    status, session_only = "timeout", []
     with sync_playwright() as p:
-        ctx = p.chromium.launch_persistent_context(str(profile_dir), headless=False, locale="ko-KR", viewport=None)
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
-        page.goto(login_url)
-        print("열린 창에서 네이버에 로그인하세요. ('로그인 상태 유지'를 꼭 켜 주세요)")
-        deadline = time.monotonic() + wait_seconds
+        ctx = p.chromium.launch_persistent_context(str(profile_dir), headless=headless, locale="ko-KR",
+                                                   viewport=None)
         try:
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            page.goto(login_url)
+            print("열린 창에서 네이버에 로그인하세요.")
+            print("  1) 아이디 넣기 전에 '로그인 상태 유지'를 꼭 체크하세요(안 하면 창이 닫힐 때 로그인이 지워져요).")
+            print("  2) 로그인 뒤 '기기 등록' 같은 화면이 나오면 끝까지 넘겨 주세요. 블로그 화면이 뜨면 창은 저절로 닫혀요.")
+            deadline = time.monotonic() + wait_seconds
+            hinted_at = None
             while time.monotonic() < deadline:
-                names = {c["name"] for c in ctx.cookies(["https://nid.naver.com", "https://blog.naver.com"])}
-                if all(n in names for n in AUTH_COOKIES):
-                    page.wait_for_timeout(1500)
-                    print("로그인 확인됐어요. 창을 닫습니다.")
-                    return True
+                cookies = {c["name"]: c for c in ctx.cookies(list(cookie_urls))}
+                if all(n in cookies for n in AUTH_COOKIES):
+                    if login_marker not in (page.url or ""):
+                        page.wait_for_timeout(settle_ms)
+                        cookies = {c["name"]: c for c in ctx.cookies(list(cookie_urls))}
+                        session_only = [n for n in AUTH_COOKIES
+                                        if n in cookies and (cookies[n].get("expires") or -1) <= 0]
+                        status = "ok"
+                        break
+                    if hinted_at is None:
+                        hinted_at = time.monotonic()
+                    elif time.monotonic() - hinted_at > 20:
+                        print("로그인은 됐는데 아직 네이버 로그인 화면이에요. 남은 화면(기기 등록 등)을 끝까지 넘겨 주세요.")
+                        hinted_at = time.monotonic() + 100000
                 page.wait_for_timeout(1000)
         except PlaywrightError:
+            status = "closed"
             print("창이 닫혔어요.")
-            return False
         finally:
             try:
                 ctx.close()
             except PlaywrightError:
                 pass
-    print("시간 안에 로그인이 안 됐어요. 다시 해 주세요.")
-    return False
+    return status, session_only

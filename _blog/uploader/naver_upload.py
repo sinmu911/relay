@@ -311,6 +311,42 @@ def setup_logging(verbose: bool) -> None:
     root.addHandler(sh)
 
 
+def do_login(config_path: Path, login_fn=None, publisher_cls=None) -> int:
+    """로그인 창 → 창을 닫은 뒤 다시 열어서 로그인이 남았는지 진짜 올릴 때와 같은 길로 확인."""
+    from playwright.sync_api import Error as PlaywrightError
+
+    from naver_editor import EditorError, NaverPublisher, interactive_login
+    login_fn = login_fn or interactive_login
+    publisher_cls = publisher_cls or NaverPublisher
+    status, session_only = login_fn(APP_HOME / "profile")
+    if status == "timeout":
+        print("시간 안에 로그인이 안 됐어요. 다시 해 주세요.")
+        return 1
+    try:
+        cfg = load_config(config_path)
+    except ConfigError as e:
+        print(f"설정 파일 문제로 로그인 저장 확인을 못 했어요: {e}")
+        return 2
+    print("로그인이 저장됐는지 확인하는 중이에요(창이 한 번 더 잠깐 떠요)...")
+    try:
+        with publisher_cls(cfg["blog_id"], APP_HOME / "profile", APP_HOME / "logs",
+                           headless=bool(cfg["headless"])) as pub:
+            ok = pub.check_login()
+    except (EditorError, PlaywrightError) as e:
+        print(f"확인을 끝까지 못 했어요({str(e)[:100]}). test 로 확인해 주세요.")
+        return 1
+    if ok:
+        print("✅ 로그인 저장 확인 — 창을 닫아도 로그인이 남아요. 다음: test")
+        return 0
+    print("❌ 창을 닫으니 로그인이 풀렸어요.")
+    if session_only or status == "ok":
+        print("   '로그인 상태 유지'가 꺼진 채로 로그인돼서 그래요. login 을 다시 하고,")
+        print("   아이디 넣기 전에 '로그인 상태 유지'를 꼭 체크해 주세요.")
+    else:
+        print("   로그인을 끝까지 마치기 전에 창이 닫혔어요. login 을 다시 해 주세요.")
+    return 1
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="네이버 블로그 자동 올리기")
     ap.add_argument("--config", type=Path, default=APP_HOME / "config.json")
@@ -325,8 +361,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     setup_logging(args.verbose)
 
     if args.cmd == "login":
-        from naver_editor import interactive_login
-        return 0 if interactive_login(APP_HOME / "profile") else 1
+        return do_login(args.config)
 
     try:
         cfg = load_config(args.config)
