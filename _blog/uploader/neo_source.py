@@ -110,6 +110,9 @@ def render_block(lines: List[str]) -> str:
     return "".join(parts)
 
 
+AI_NOTE_RE = re.compile(r"AI\s*(?:도움|로\s*만든|가\s*만든|로\s*정리|생성)")
+
+
 def build_segments(body: str, errors: List[str]) -> List[Segment]:
     segments: List[Segment] = []
     buf: List[str] = []
@@ -135,6 +138,8 @@ def build_segments(body: str, errors: List[str]) -> List[Segment]:
             continue
         if re.fullmatch(r"={5,}", line.strip()):
             continue
+        if AI_NOTE_RE.search(line):
+            continue   # 사장님 방침: 'AI로 정리·AI 그림' 고지 문장은 올리지 않음
         buf.append(line)
     flush()
     return segments

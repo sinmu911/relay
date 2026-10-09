@@ -252,3 +252,11 @@ def test_blog_feed_parses_rss_and_similarity():
     assert not find_similar("[두바이 ③] 렌트카로 하루 만에 도는 아부다비 코스", feed.titles())
     with pytest.raises(StoreError):
         BlogFeed("x", fetch=lambda url: b"<rss><broken").titles()
+
+
+def test_ai_note_line_dropped():
+    from neo_source import build_segments
+    errs = []
+    segs = build_segments("본문 한 줄\n\n직접 다녀온 기록을 AI 도움으로 정리했고, 그림은 AI로 만든 설명 일러스트입니다.\n\n끝 인사", errs)
+    text = " ".join(s.text for s in segs)
+    assert "AI" not in text and "본문 한 줄" in text and "끝 인사" in text and not errs
