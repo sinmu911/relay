@@ -21,6 +21,11 @@ PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 need_install() { [ -x "$PY" ] && [ -f "$CODE/naver_upload.py" ] || { echo "먼저: bash \"$0\" install"; exit 1; }; }
 
 copy_code() {
+  # 드라이브에서 받은 경우: 파일 지문(MANIFEST.sha256)과 다르면(동기화 덜 됨·깨짐) 설치하지 않는다
+  if [ -f "$HERE/MANIFEST.sha256" ]; then
+    (cd "$HERE" && shasum -a 256 -c MANIFEST.sha256 --quiet) || {
+      echo "파일이 덜 내려왔거나 바뀌었어요. 드라이브 동기화가 끝난 뒤 다시 해 주세요."; exit 1; }
+  fi
   mkdir -p "$CODE"
   cp "$HERE"/*.py "$HERE/requirements.txt" "$HERE/launchd.plist.template" "$CODE"/
   echo "코드 복사: $HERE → $CODE"
