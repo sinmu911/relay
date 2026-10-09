@@ -165,3 +165,9 @@ def test_check_login(base_url, tmp_path):
         assert pub.check_login() is True
     with publisher(tmp_path, f"{base_url}/nidlogin.html", login_marker="nidlogin") as pub:
         assert pub.check_login() is False
+
+
+def test_brief_pass_through_login_host_is_not_logged_out(base_url, tmp_path):
+    # 다시 연 브라우저가 로그인 이어주기로 nid 주소를 잠깐 거쳐도 '풀림'으로 보지 않는다
+    with publisher(tmp_path, f"{base_url}/nidlogin_bounce.html", login_marker="nidlogin") as pub:
+        assert pub.check_login() is True

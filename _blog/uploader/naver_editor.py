@@ -23,7 +23,8 @@ log = logging.getLogger(__name__)
 WRITE_URL = "https://blog.naver.com/{blog_id}?Redirect=Write&"
 LOGIN_URL = "https://nid.naver.com/nidlogin.login?mode=form&url=https%3A%2F%2Fblog.naver.com%2F"
 COOKIE_URLS = ("https://nid.naver.com", "https://blog.naver.com")
-LOGIN_MARKER = "nid.naver.com"
+LOGIN_MARKER = "nidlogin.login"   # 로그인 입력 화면(nid.naver.com 의 다른 주소는 로그인 이어주기용으로 잠깐 거침)
+LOGIN_HOLD_MS = 3000             # 로그인 화면이 이만큼 계속 떠 있어야 '풀림'으로 본다
 AUTH_COOKIES = ("NID_AUT", "NID_SES")
 
 # 각 항목은 앞에서부터 차례로 찾아 처음 보이는 것을 쓴다(네이버 화면이 조금 바뀌어도 버티게)
@@ -183,11 +184,14 @@ class NaverPublisher:
 
     def check_login(self) -> bool:
         """글쓰기 화면을 열어 본다 — 진짜 올릴 때와 똑같은 길로 로그인이 남아 있는지 확인."""
+        names = sorted(c["name"] for c in self._ctx.cookies(list(COOKIE_URLS)) if c["name"] in AUTH_COOKIES)
+        log.info("다시 연 브라우저에 남은 로그인 쿠키: %s", ", ".join(names) or "없음")
         page = self._ctx.new_page()
         try:
             self._open_editor(page)
             return True
         except NotLoggedInError:
+            self._shot(page, "loginfail")
             return False
         finally:
             try:
@@ -218,9 +222,14 @@ class NaverPublisher:
     def _open_editor(self, page: Page) -> Frame:
         page.goto(self.write_url.format(blog_id=self.blog_id), wait_until="domcontentloaded")
         deadline = time.monotonic() + T_EDITOR_MS / 1000
+        login_since = None
         while True:
             if self._is_login_page(page):
-                raise NotLoggedInError("네이버 로그인이 필요해요")
+                login_since = login_since or time.monotonic()
+                if (time.monotonic() - login_since) * 1000 >= LOGIN_HOLD_MS or time.monotonic() >= deadline:
+                    raise NotLoggedInError("네이버 로그인이 필요해요")
+            else:
+                login_since = None
             for fr in page.frames:   # 글쓰기 화면은 mainFrame 안에 뜨기도 하고 바로 뜨기도 해서 다 찾아본다
                 try:
                     if fr.locator(SELECTORS["title"][0]).count() or fr.locator(SELECTORS["title"][-1]).count():
@@ -368,7 +377,7 @@ class NaverPublisher:
 
 
 def interactive_login(profile_dir: Path, login_url: str = LOGIN_URL, wait_seconds: int = 600,
-                      login_marker: str = LOGIN_MARKER, cookie_urls=COOKIE_URLS,
+                      login_marker: str = "nid.naver.com", cookie_urls=COOKIE_URLS,
                       headless: bool = False, settle_ms: int = 2000) -> Tuple[str, List[str]]:
     """로그인 창을 띄우고 사장님이 직접 로그인할 때까지 기다린다. 로그인 정보는 profile_dir 에만 남는다.
 
@@ -400,6 +409,9 @@ def interactive_login(profile_dir: Path, login_url: str = LOGIN_URL, wait_second
                         session_only = [n for n in AUTH_COOKIES
                                         if n in cookies and (cookies[n].get("expires") or -1) <= 0]
                         status = "ok"
+                        for n in AUTH_COOKIES:
+                            print(f"  {n}: {'창 닫으면 지워짐' if n in session_only else '저장됨(만료일 있음)'}"
+                                  if n in cookies else f"  {n}: 없음")
                         break
                     if hinted_at is None:
                         hinted_at = time.monotonic()

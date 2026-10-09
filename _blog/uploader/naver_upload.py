@@ -339,9 +339,12 @@ def do_login(config_path: Path, login_fn=None, publisher_cls=None) -> int:
         print("✅ 로그인 저장 확인 — 창을 닫아도 로그인이 남아요. 다음: test")
         return 0
     print("❌ 창을 닫으니 로그인이 풀렸어요.")
-    if session_only or status == "ok":
+    if session_only:
         print("   '로그인 상태 유지'가 꺼진 채로 로그인돼서 그래요. login 을 다시 하고,")
         print("   아이디 넣기 전에 '로그인 상태 유지'를 꼭 체크해 주세요.")
+    elif status == "ok":
+        print("   로그인 쿠키는 저장됐는데 다시 열었을 때 로그인 화면이 떴어요.")
+        print("   logs 폴더의 loginfail 사진과 'bash ~/.naver-blog-uploader/app/setup_mac.sh log' 결과를 보내 주세요.")
     else:
         print("   로그인을 끝까지 마치기 전에 창이 닫혔어요. login 을 다시 해 주세요.")
     return 1
