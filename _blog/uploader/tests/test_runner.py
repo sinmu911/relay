@@ -311,3 +311,10 @@ def test_feed_fetched_once_per_run(env):
     env.feed = FakeFeed([])
     env.runner().run()
     assert env.feed.calls == 2 and len(env.clicks) == 2   # FakeFeed 는 캐시 안 함 — 진짜 BlogFeed 는 1번
+
+
+def test_dry_run_ignores_schedule_but_real_run_waits(env):
+    env.store.files = {"_blog/posts/s.md": md("예약글", extra="publish_at: 2026-10-20 09:00\n")}
+    assert env.runner().run() == []
+    assert env.runner().run(dry_run=True) == ["dryrun:_blog/posts/s.md"]
+    assert env.clicks == [("dry", "_blog/posts/s.md")] and env.rec("_blog/posts/s.md") == {}

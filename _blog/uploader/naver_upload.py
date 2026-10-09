@@ -161,7 +161,9 @@ class Runner:
                     log.warning("글 파일을 못 읽음 %s: %s", f["path"], e)
                     continue
                 rec = state["posts"].get(post.path)
-                d = decide(post, rec, now, taken_titles(state), self.cfg["max_attempts"])
+                # 시험 실행은 발행을 안 누르니 예약 시각을 기다리지 않는다(다음 주 글도 미리 시험)
+                decide_now = datetime.max if dry_run else now
+                d = decide(post, rec, decide_now, taken_titles(state), self.cfg["max_attempts"])
                 log.info("%s → %s %s", post.path, d.action, d.reason)
                 if d.action == ACTION_INVALID:
                     if not rec or rec.get("status") != INVALID or rec.get("hash") != post.content_hash:
