@@ -61,6 +61,13 @@ PASTE_JS = """([html, text]) => {
 CARET_END_JS = """el => { const r = document.createRange(); r.selectNodeContents(el); r.collapse(false);
   const s = window.getSelection(); s.removeAllRanges(); s.addRange(r); }"""
 IMG_READY_JS = "img => img.complete && img.naturalWidth > 0"
+# 진짜 네이버 에디터는 스크립트로 만든 붙여넣기는 무시한다 → 맥 클립보드에 서식 그대로 넣고 ⌘V
+CLIP_WRITE_JS = """async ([html, text]) => {
+  await navigator.clipboard.write([new ClipboardItem({
+    'text/html': new Blob([html], {type: 'text/html'}),
+    'text/plain': new Blob([text], {type: 'text/plain'})})]);
+  return true;
+}"""
 
 Scope = Union[Page, Frame]
 
@@ -129,6 +136,10 @@ class NaverPublisher:
         self._ctx = self._pw.chromium.launch_persistent_context(
             str(self.profile_dir), headless=self.headless, locale="ko-KR",
             viewport={"width": 1280, "height": 900})
+        try:
+            self._ctx.grant_permissions(["clipboard-read", "clipboard-write"])
+        except PlaywrightError:
+            pass
         return self
 
     def __exit__(self, *exc) -> None:
@@ -291,12 +302,27 @@ class NaverPublisher:
                            and probe in self._body_text(frame), 10000):
                 return
             raise EditorError(f"붙여넣은 본문이 안 보여요: {seg.text[:30]}")
+        if self._clipboard_paste(page, frame, seg):
+            if _wait_until(frame, lambda: len(self._body_text(frame)) > before
+                           and probe in self._body_text(frame), 5000):
+                return
+            if len(self._body_text(frame)) > before:
+                raise EditorError(f"붙여넣은 본문이 일부만 보여요: {seg.text[:30]}")
         # 붙여넣기를 에디터가 아예 안 받았으면 서식 없이 한 줄씩 친다(글이 빠지는 것보다 낫다)
         log.warning("붙여넣기가 안 돼서 글자만 직접 입력해요(굵게·목록 등 서식 빠짐)")
         for i, line in enumerate(html_to_lines(seg.html)):
             if i:
                 page.keyboard.press("Enter")
             page.keyboard.insert_text(line)
+
+    def _clipboard_paste(self, page: Page, frame: Frame, seg: Segment) -> bool:
+        try:
+            frame.evaluate(CLIP_WRITE_JS, [seg.html, seg.text])
+        except PlaywrightError as e:
+            log.info("클립보드에 못 넣음: %s", str(e)[:100])
+            return False
+        page.keyboard.press("ControlOrMeta+V")
+        return True
 
     def _insert_image(self, page: Page, frame: Frame, path: Path) -> None:
         self._focus_end(page, frame)
@@ -305,8 +331,19 @@ class NaverPublisher:
         btn = _first_visible(frame, SELECTORS["image_button"], T_SHORT_MS)
         if not btn:
             raise EditorError("사진 버튼을 못 찾았어요")
-        with page.expect_file_chooser(timeout=15000) as chooser:
-            btn.click()
+        try:
+            with page.expect_file_chooser(timeout=15000) as chooser:
+                btn.click()
+        except PlaywrightError:
+            # 사진 버튼이 파일 창 대신 다른 창(도움말 등)을 띄웠을 때 — 닫고 한 번 더
+            self._shot(page, "imagebtn")
+            page.keyboard.press("Escape")
+            self._focus_end(page, frame)
+            btn = _first_visible(frame, SELECTORS["image_button"], T_SHORT_MS)
+            if not btn:
+                raise EditorError("사진 버튼을 못 찾았어요")
+            with page.expect_file_chooser(timeout=15000) as chooser:
+                btn.click()
         chooser.value.set_files(str(path))
         if not _wait_until(frame, lambda: images.count() > before, T_IMAGE_MS):
             raise EditorError(f"사진이 안 들어갔어요: {path.name}")

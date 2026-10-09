@@ -171,3 +171,15 @@ def test_brief_pass_through_login_host_is_not_logged_out(base_url, tmp_path):
     # 다시 연 브라우저가 로그인 이어주기로 nid 주소를 잠깐 거쳐도 '풀림'으로 보지 않는다
     with publisher(tmp_path, f"{base_url}/nidlogin_bounce.html", login_marker="nidlogin") as pub:
         assert pub.check_login() is True
+
+
+def test_untrusted_paste_ignored_uses_real_clipboard_keeps_format(base_url, tmp_path):
+    Handler.submissions.clear()
+    post = parse_post("p.md", "---\ntitle: 클립보드\nstatus: ready\n---\n첫째 **굵게** 줄\n\n둘째 문단")
+    with publisher(tmp_path, f"{base_url}/editor.html?trustedpaste=1") as pub:
+        assert pub.publish(post, {}, lambda: None)
+    comps = Handler.submissions[-1]["comps"]
+    html = " ".join(c.get("html", "") for c in comps)
+    text = " ".join(c.get("text", "") for c in comps)
+    assert "둘째 문단" in text and text.count("둘째 문단") == 1
+    assert "<strong>" in html or "<b>" in html, html

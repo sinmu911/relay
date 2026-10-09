@@ -31,6 +31,7 @@ document.getElementById('tag-input').addEventListener('keydown', e => {
 function textComp(){ const c = document.createElement('div'); c.className = 'se-component se-text';
   c.innerHTML = '<div class="se-text-paragraph" contenteditable="true"></div>'; return c; }
 if (Q.get('nopaste') !== '1') document.addEventListener('paste', e => {
+  if (Q.get('trustedpaste') === '1' && !e.isTrusted) return;   // 진짜 네이버처럼 스크립트 붙여넣기 무시
   const comp = e.target.closest && e.target.closest('.se-component.se-text'); if (!comp) return;
   e.preventDefault();
   const html = e.clipboardData.getData('text/html');
