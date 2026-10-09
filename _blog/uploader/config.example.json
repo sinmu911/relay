@@ -1,11 +1,15 @@
 {
-  "_설명": "blog_id 와 github_token 만 채우면 됩니다. 이 파일은 맥에만 두고 저장소에 올리지 마세요.",
-  "blog_id": "네이버블로그아이디",
-  "github_token": "github_pat_여기에_토큰",
+  "_설명": "이 파일은 맥에만 두고 저장소에 올리지 마세요. sources 로 글 출처를 고릅니다: github = 글쓰기 화면, neo = 블로그 섹션(블로그_NEO 폴더).",
+  "blog_id": "mose_love",
+  "sources": ["neo"],
+  "neo_root": "~/Library/CloudStorage/GoogleDrive-sinmu911@gmail.com/내 드라이브/블로그_NEO",
+  "neo_category": "",
+  "github_token": "글쓰기 화면도 쓸 때만: github_pat_...",
   "repo": "sinmu911/relay",
   "branch": "main",
   "headless": false,
   "max_attempts": 3,
   "max_posts_per_run": 1,
+  "check_blog_feed": true,
   "notify": true
 }

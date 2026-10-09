@@ -25,11 +25,13 @@ from typing import Callable, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from blogpost import Post, parse_post  # noqa: E402
+from blogpost import Post  # noqa: E402
 from github_store import GitHubStore, StoreError  # noqa: E402
+from neo_source import NeoStore  # noqa: E402
 from queue_state import (ACTION_DUPLICATE, ACTION_INVALID, ACTION_UPLOAD, DUPLICATE, FAILED,  # noqa: E402
                          INVALID, NEEDS_CHECK, PUBLISHED, PUBLISHING, RunLock, StateError, StateFile,
-                         decide, merge_remote, now_str, recover_interrupted, taken_titles)
+                         decide, is_explicit_retry, merge_remote, now_str, recover_interrupted, taken_titles)
+from sources import BlogFeed, MultiStore, find_similar  # noqa: E402
 
 log = logging.getLogger("naver_upload")
 
@@ -43,7 +45,12 @@ DEFAULTS = {
     "max_attempts": 3,
     "max_posts_per_run": 1,   # 한꺼번에 여러 편 올리면 네이버가 이상 행동으로 볼 수 있어 5분에 한 편
     "notify": True,
+    "sources": ["github"],    # github = 글쓰기 화면, neo = 블로그 섹션(블로그_NEO 폴더)
+    "neo_root": "",
+    "neo_category": "",
+    "check_blog_feed": True,  # 올리기 전 블로그 글 목록(RSS)에 같은 제목이 있으면 건너뜀
 }
+SOURCES = ("github", "neo")
 
 
 class ConfigError(Exception):
@@ -62,10 +69,16 @@ def load_config(path: Path) -> dict:
     cfg["github_token"] = os.environ.get("BLOG_GITHUB_TOKEN") or cfg.get("github_token", "")
     if not re.fullmatch(r"[A-Za-z0-9_-]{3,30}", str(cfg.get("blog_id", ""))):
         raise ConfigError("설정의 blog_id 에 네이버 블로그 아이디(영문/숫자)를 넣어 주세요")
-    if not re.fullmatch(r"(github_pat_|ghp_)[A-Za-z0-9_]{20,}", str(cfg["github_token"])):
-        raise ConfigError("설정의 github_token 에 GitHub 토큰을 넣어 주세요")
-    if not re.fullmatch(r"[\w.-]+/[\w.-]+", str(cfg.get("repo", ""))):
-        raise ConfigError("설정의 repo 는 '주인/저장소' 형식이어야 해요")
+    sources = cfg.get("sources")
+    if not isinstance(sources, list) or not sources or any(s not in SOURCES for s in sources):
+        raise ConfigError("설정의 sources 는 [\"github\"], [\"neo\"], [\"github\", \"neo\"] 중 하나여야 해요")
+    if "github" in sources:
+        if not re.fullmatch(r"(github_pat_|ghp_)[A-Za-z0-9_]{20,}", str(cfg["github_token"])):
+            raise ConfigError("설정의 github_token 에 GitHub 토큰을 넣어 주세요")
+        if not re.fullmatch(r"[\w.-]+/[\w.-]+", str(cfg.get("repo", ""))):
+            raise ConfigError("설정의 repo 는 '주인/저장소' 형식이어야 해요")
+    if "neo" in sources and not Path(os.path.expanduser(str(cfg.get("neo_root", "")))).is_dir():
+        raise ConfigError(f"설정의 neo_root(블로그_NEO 폴더)가 없어요: {cfg.get('neo_root', '')}")
     for key in ("max_attempts", "max_posts_per_run"):
         if not isinstance(cfg[key], int) or cfg[key] < 1:
             raise ConfigError(f"설정의 {key} 는 1 이상 숫자여야 해요")
@@ -100,7 +113,8 @@ def _record(post: Post, blob_sha: str, status: str, now: datetime, prev: Optiona
 class Runner:
     def __init__(self, cfg: dict, store, state_file: StateFile, lock: RunLock,
                  publisher_factory: Callable, notify: Callable[[str, str], None],
-                 now_fn: Callable[[], datetime] = datetime.now):
+                 now_fn: Callable[[], datetime] = datetime.now, feed=None):
+        self.feed = feed   # 블로그에 이미 있는 글 확인(없으면 안 봄)
         self.cfg = cfg
         self.store = store
         self.state_file = state_file
@@ -142,8 +156,8 @@ class Runner:
                 if only_path and f["path"] != only_path:
                     continue
                 try:
-                    post = parse_post(f["path"], self.store.read_post_text(f["path"], f["sha"]))
-                except (StoreError, UnicodeDecodeError) as e:
+                    post = self.store.load_post(f)
+                except (StoreError, UnicodeDecodeError, OSError) as e:
                     log.warning("글 파일을 못 읽음 %s: %s", f["path"], e)
                     continue
                 rec = state["posts"].get(post.path)
@@ -163,6 +177,21 @@ class Runner:
                     if uploads >= self.cfg["max_posts_per_run"]:
                         events.append(f"later:{post.path}")
                         continue
+                    if self.feed is not None:
+                        try:
+                            on_blog = find_similar(post.title, self.feed.titles())
+                        except StoreError as e:
+                            log.warning("블로그 글 목록 확인이 안 돼서 이번엔 안 올림: %s", e)
+                            events.append("feed_error")
+                            break
+                        if on_blog and not is_explicit_retry(post, rec):
+                            if not rec or rec.get("status") != DUPLICATE or rec.get("hash") != post.content_hash:
+                                reason = f"블로그에 이미 같은 제목 글이 있어요(손으로 올리신 듯): {on_blog}"
+                                state["posts"][post.path] = _record(post, f["sha"], DUPLICATE, now, rec, error=reason)
+                                self.notify("이미 올라간 글", f"{post.title} — 자동으로는 안 올렸어요.")
+                            events.append(f"on_blog:{post.path}")
+                            self.state_file.save(state)
+                            continue
                     uploads += 1
                     if publisher is None:
                         try:
@@ -207,7 +236,7 @@ class Runner:
 
         with tempfile.TemporaryDirectory(prefix="naver-blog-") as tmp:
             try:
-                images = {p: self.store.download_image(p, Path(tmp)) for p in post.image_paths}
+                images = self.store.fetch_images(post, Path(tmp))
                 url = publisher.publish(post, images, mark_publishing, dry_run=dry_run)
             except NotLoggedInError:
                 self._login_alert(state)
@@ -253,7 +282,7 @@ def print_status(cfg: dict, store, state_file: StateFile) -> None:
     state = merge_remote(state_file.load(), store.get_state()[0])
     now = datetime.now()
     for f in store.list_post_files():
-        post = parse_post(f["path"], store.read_post_text(f["path"], f["sha"]))
+        post = store.load_post(f)
         rec = state["posts"].get(post.path) or {}
         d = decide(post, rec, now, taken_titles(state), cfg["max_attempts"])
         extra = rec.get("url") or rec.get("error") or ""
@@ -297,8 +326,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     except ConfigError as e:
         log.error("%s", e)
         return 2
-    store = GitHubStore(cfg["repo"], cfg["branch"], cfg["github_token"], cfg["blog_root"],
-                        cache_dir=APP_HOME / "cache")
+    stores = []
+    if "github" in cfg["sources"]:
+        stores.append(GitHubStore(cfg["repo"], cfg["branch"], cfg["github_token"], cfg["blog_root"],
+                                  cache_dir=APP_HOME / "cache"))
+    if "neo" in cfg["sources"]:
+        stores.append(NeoStore(cfg["neo_root"], default_category=cfg["neo_category"]))
+    store = MultiStore(stores)
     state_file = StateFile(APP_HOME / "state.json")
 
     def notify(title: str, message: str) -> None:
@@ -316,7 +350,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             return NaverPublisher(cfg["blog_id"], APP_HOME / "profile", APP_HOME / "logs",
                                   headless=bool(cfg["headless"]))
 
-        runner = Runner(cfg, store, state_file, RunLock(APP_HOME / "run.lock"), publisher_factory, notify)
+        feed = BlogFeed(cfg["blog_id"]) if cfg["check_blog_feed"] else None
+        runner = Runner(cfg, store, state_file, RunLock(APP_HOME / "run.lock"), publisher_factory, notify,
+                        feed=feed)
         events = runner.run(dry_run=args.dry_run, only_path=args.post)
         log.info("끝: %s", ", ".join(events) or "올릴 글 없음")
         return 0

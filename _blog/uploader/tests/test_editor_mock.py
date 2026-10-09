@@ -128,3 +128,23 @@ def test_before_click_failure_prevents_click(base_url, tmp_path, images):
         with pytest.raises(OSError):
             pub.publish(POST, images, boom)
     assert Handler.submissions == []
+
+
+def test_blog_section_post_in_editor(base_url, tmp_path):
+    """블로그 섹션 완성본(■·▶·굵게·파랑·그림 자리)이 모의 에디터에 순서대로 들어가는지."""
+    from neo_source import NeoStore
+    from test_neo_source import make_neo
+    root = make_neo(tmp_path / "neo")
+    st = NeoStore(root)
+    post = st.load_post(st.list_post_files()[0])
+    images = st.fetch_images(post, tmp_path)
+    Handler.submissions.clear()
+    with publisher(tmp_path, f"{base_url}/editor.html") as pub:
+        assert pub.publish(post, images, lambda: None)
+    sub = Handler.submissions[-1]
+    assert sub["title"] == "[테스트 ①] 렌트카로 도는 하루 코스"
+    assert sub["tags"] == ["테스트", "렌트카여행", "달리는이기사"]
+    order = ["img:" + c["img"] if "img" in c else "text" for c in sub["comps"] if "img" in c or c["text"]]
+    assert order == ["img:테스트_00_대표.png", "text", "img:테스트_01_지도.png", "text"]
+    html = " ".join(c["html"] for c in sub["comps"] if c.get("text"))
+    assert "<strong>굵게</strong>" in html and "color:#0075c8" in html and "<strong>■ 하루 순서</strong>" in html

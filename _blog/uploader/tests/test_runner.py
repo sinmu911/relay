@@ -35,6 +35,13 @@ class FakeStore:
     def read_post_text(self, path, sha):
         return self.files[path]
 
+    def load_post(self, f):
+        from blogpost import parse_post
+        return parse_post(f["path"], self.read_post_text(f["path"], f["sha"]))
+
+    def fetch_images(self, post, dest):
+        return {p: self.download_image(p, dest) for p in post.image_paths}
+
     def download_image(self, rel, dest):
         if rel not in self.images:
             raise StoreError(f"파일이 없어요: {rel}")
@@ -96,10 +103,12 @@ def env(tmp_path):
         state_file = StateFile(tmp_path / "state.json")
         lock = RunLock(tmp_path / "run.lock")
 
+        feed = None
+
         def runner(self):
             return Runner(self.cfg, self.store, self.state_file, self.lock,
                           lambda: FakePublisher(self.clicks, self.mode),
-                          lambda t, m: self.notes.append((t, m)), now_fn=lambda: NOW)
+                          lambda t, m: self.notes.append((t, m)), now_fn=lambda: NOW, feed=self.feed)
 
         def rec(self, path="_blog/posts/a.md"):
             return self.state_file.load()["posts"].get(path, {})
@@ -258,3 +267,47 @@ def test_browser_launch_failure_counts_no_attempt(env):
     r.publisher_factory = broken
     assert r.run() == ["browser_error"]
     assert env.rec() == {}
+
+
+class FakeFeed:
+    def __init__(self, titles=None, fail=False):
+        self._titles = titles or []
+        self.fail = fail
+        self.calls = 0
+
+    def titles(self):
+        self.calls += 1
+        if self.fail:
+            raise StoreError("RSS 못 받음")
+        return self._titles
+
+
+def test_post_already_on_blog_is_not_reposted(env):
+    env.feed = FakeFeed(["다른 글", "첫 글 "])          # 사장님이 손으로 올린 글
+    assert env.runner().run() == ["on_blog:_blog/posts/a.md"]
+    assert env.clicks == [] and env.rec()["status"] == DUPLICATE
+    assert sum(t == "이미 올라간 글" for t, _ in env.notes) == 1
+    assert env.runner().run() == []                     # 다시 안 알림·안 올림
+    env.store.files["_blog/posts/a.md"] = md("첫 글", extra="retry: 2026-10-09T13:00\n")
+    assert env.runner().run() == ["published:_blog/posts/a.md"]   # [다시 올리기]면 올림
+
+
+def test_series_titles_with_different_number_are_not_confused(env):
+    env.store.files = {"_blog/posts/a.md": md("[두바이 ④] 두바이 3일 실제 쓴 돈 정리")}
+    env.feed = FakeFeed(["[두바이 ③] 렌트카로 하루 만에 도는 아부다비 코스",
+                         "[두바이 ②] 두바이 렌트카 처음이라면"])
+    assert env.runner().run() == ["published:_blog/posts/a.md"]
+
+
+def test_feed_failure_means_no_upload_and_no_attempt(env):
+    env.feed = FakeFeed(fail=True)
+    assert env.runner().run() == ["feed_error"]
+    assert env.clicks == [] and env.rec() == {}
+
+
+def test_feed_fetched_once_per_run(env):
+    env.store.files = {"_blog/posts/a.md": md("A"), "_blog/posts/b.md": md("B")}
+    env.cfg = {"max_attempts": 3, "max_posts_per_run": 2}
+    env.feed = FakeFeed([])
+    env.runner().run()
+    assert env.feed.calls == 2 and len(env.clicks) == 2   # FakeFeed 는 캐시 안 함 — 진짜 BlogFeed 는 1번

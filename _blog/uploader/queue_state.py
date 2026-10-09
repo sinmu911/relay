@@ -52,6 +52,11 @@ def now_str(now: datetime) -> str:
     return now.strftime("%Y-%m-%d %H:%M:%S")
 
 
+def is_explicit_retry(post: Post, rec: Optional[dict]) -> bool:
+    """글쓰기 화면의 [다시 올리기](또는 목록의 retry 값)로 사장님이 직접 다시 올리라고 한 경우."""
+    return bool(post.retry) and post.retry != (rec or {}).get("retry", "")
+
+
 def decide(post: Post, rec: Optional[dict], now: datetime, taken_titles: Dict[str, str],
            max_attempts: int) -> Decision:
     rec = rec or {}
@@ -60,7 +65,7 @@ def decide(post: Post, rec: Optional[dict], now: datetime, taken_titles: Dict[st
         return Decision(ACTION_SKIP, "이미 올림")
     if st == PUBLISHING:
         return Decision(ACTION_SKIP, "올리는 중 기록 있음")
-    explicit_retry = bool(post.retry) and post.retry != rec.get("retry", "")
+    explicit_retry = is_explicit_retry(post, rec)
     if st in (NEEDS_CHECK, DUPLICATE) and not explicit_retry:
         return Decision(ACTION_SKIP, "확인 필요 — [다시 올리기]를 눌러야 다시 올림")
     if post.status == "draft":

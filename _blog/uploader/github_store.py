@@ -107,6 +107,19 @@ class GitHubStore:
             cached.write_text(text, encoding="utf-8")
         return text
 
+    @staticmethod
+    def owns(path: str) -> bool:
+        return not path.startswith("neo:")
+
+    def load_post(self, f: dict):
+        from blogpost import parse_post
+        post = parse_post(f["path"], self.read_post_text(f["path"], f["sha"]))
+        post.source = "github"
+        return post
+
+    def fetch_images(self, post, dest_dir: Path) -> dict:
+        return {p: self.download_image(p, dest_dir) for p in post.image_paths}
+
     def download_image(self, rel_path: str, dest_dir: Path) -> Path:
         dest = Path(dest_dir) / Path(rel_path).name
         dest.write_bytes(self.read_bytes(f"{self.blog_root}/{rel_path}"))

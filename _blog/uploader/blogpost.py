@@ -60,6 +60,8 @@ class Post:
     content_hash: str = ""
     errors: List[str] = field(default_factory=list)
     segments: List[Segment] = field(default_factory=list)
+    source: str = ""        # 어느 출처에서 왔는지(github / neo)
+    image_dir: str = ""     # 블로그_NEO 글의 그림 폴더
 
     @property
     def image_paths(self) -> List[str]:
