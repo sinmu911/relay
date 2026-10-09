@@ -244,6 +244,11 @@ class Runner:
                 self._login_alert(state)
                 return f"login:{post.path}"
             except Exception as e:  # noqa: BLE001 — 어떤 오류든 '발행을 눌렀는지'는 기록으로 판단해야 해서 다 받는다
+                if dry_run:
+                    # 시험은 발행을 안 누르니 기록(실패 횟수)을 남기지 않는다 — 진짜 발행의 재시도 기회를 안 깎게
+                    self.notify("시험 실패", f"{post.title} — {str(e)[:80]}")
+                    log.error("시험 실패 %s: %s", post.path, e)
+                    return f"dryrun_failed:{post.path}"
                 cur = state["posts"].get(post.path) or {}
                 if cur.get("status") == PUBLISHING:
                     state["posts"][post.path] = dict(cur, status=NEEDS_CHECK, at=now_str(self.now_fn()),

@@ -16,26 +16,28 @@
 
 ## 처음 설정 (한 번만)
 
-### 1. GitHub 토큰 만들기 (폰·맥에서 같이 써요)
+### 1. GitHub 토큰 만들기 (글쓰기 화면을 쓸 때만 — 블로그 섹션 자동 발행만 쓰면 건너뛰기)
 1. https://github.com/settings/personal-access-tokens/new 열기
 2. Repository access → **Only select repositories** → **relay**
 3. Permissions → **Contents** → **Read and write**
 4. Generate → 나온 `github_pat_…` 를 복사해 둠
 
 ### 2. 맥에 업로더 설치
-터미널에서:
+자동 발행기는 드라이브 **`블로그_NEO/도구/자동발행/`** 에 있어요(이 저장소의 `_blog/uploader` 와 같은 코드). 맥 터미널에서:
 ```bash
-git clone https://github.com/sinmu911/relay.git ~/relay
-bash ~/relay/_blog/uploader/setup_mac.sh install
+cd ~/Library/CloudStorage/GoogleDrive-*/내\ 드라이브/블로그_NEO/도구/자동발행
+bash setup_mac.sh install
 open -e ~/.naver-blog-uploader/config.json
 ```
-설정 파일에서 두 칸만 채우고 저장:
-- `blog_id` : 네이버 블로그 아이디 (blog.naver.com/**여기**)
-- `github_token` : 1번에서 만든 토큰
+설치하면 코드를 `~/.naver-blog-uploader/app` 으로 복사해서 돌려요(드라이브 폴더엔 아무것도 안 씀). 코드를 고친 뒤엔 `bash setup_mac.sh update`.
+설정 파일에서 확인할 칸:
+- `blog_id` : 네이버 블로그 아이디 (blog.naver.com/**여기**, 기본 mose_love)
+- `sources` / `neo_root` : 블로그 섹션 글이면 `["neo"]` 와 블로그_NEO 폴더 경로(기본값이 맞으면 그대로)
+- `github_token` : 글쓰기 화면(github)도 쓸 때만 — 1번 토큰
 
 ### 3. 네이버 로그인 (한 번만)
 ```bash
-bash ~/relay/_blog/uploader/setup_mac.sh login
+bash setup_mac.sh login
 ```
 뜬 창에서 직접 로그인하세요. **'로그인 상태 유지'를 꼭 켜세요.** 비밀번호는 어디에도 저장되지 않고,
 로그인 상태만 맥의 `~/.naver-blog-uploader/profile` 폴더에 남아요.
@@ -43,14 +45,14 @@ bash ~/relay/_blog/uploader/setup_mac.sh login
 ### 4. 시험 실행 (발행은 안 함)
 글쓰기 화면에서 시험 글 하나를 **[올리기]** 한 뒤:
 ```bash
-bash ~/relay/_blog/uploader/setup_mac.sh test
+bash setup_mac.sh test
 ```
 네이버 글쓰기 화면에 제목·본문·사진·태그를 다 채우고 **발행 버튼 직전에서 멈춰요.**
 `~/.naver-blog-uploader/logs/dryrun-*.png` 화면 사진으로 잘 들어갔는지 확인하세요.
 
 ### 5. 자동 실행 켜기
 ```bash
-bash ~/relay/_blog/uploader/setup_mac.sh start
+bash setup_mac.sh start
 ```
 이제 5분마다 확인해서 올려요. 끄기: `setup_mac.sh stop` · 기록 보기: `setup_mac.sh log`
 

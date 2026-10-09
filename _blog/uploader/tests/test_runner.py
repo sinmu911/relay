@@ -318,3 +318,12 @@ def test_dry_run_ignores_schedule_but_real_run_waits(env):
     assert env.runner().run() == []
     assert env.runner().run(dry_run=True) == ["dryrun:_blog/posts/s.md"]
     assert env.clicks == [("dry", "_blog/posts/s.md")] and env.rec("_blog/posts/s.md") == {}
+
+
+def test_dry_run_failure_leaves_no_record(env):
+    env.mode = "before"
+    assert env.runner().run(dry_run=True) == ["dryrun_failed:_blog/posts/a.md"]
+    assert env.rec() == {}
+    env.mode = "ok"
+    assert env.runner().run() == ["published:_blog/posts/a.md"]
+    assert env.rec()["attempts"] == 1
