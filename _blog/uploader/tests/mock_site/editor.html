@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><title>모의 스마트에디터</title>
+<style>.se-text-paragraph{min-height:20px;border:1px dashed #ccc;padding:4px}.layer{display:none}.layer.on{display:block}
+.option_list__y{display:none}.option_list__y.on{display:block}.se-component.sel{outline:2px solid blue}</style></head>
+<body>
+<!-- 시험용: 네이버 스마트에디터 ONE 과 같은 클래스 이름 구조만 흉내 냄 -->
+<div class="se-popup"><p>작성 중인 글이 있습니다.</p><button class="se-popup-button-cancel" onclick="this.parentNode.remove()">취소</button></div>
+<div class="se-help-panel"><button class="se-help-panel-close-button" onclick="this.parentNode.remove()">닫기</button></div>
+<header>
+  <button class="se-image-toolbar-button" onclick="document.getElementById('file').click()">사진</button>
+  <input type="file" id="file" style="display:none" accept="image/*">
+  <button class="publish_btn__abc" onclick="document.querySelector('.layer').classList.add('on')">발행</button>
+  <div class="layer">
+    <button class="selectbox_button__x" onclick="document.querySelector('.option_list__y').classList.toggle('on')">게시판</button>
+    <ul class="option_list__y"><li><label onclick="pick('일상')">일상</label></li><li><label onclick="pick('업무 일지')">업무 일지</label></li></ul>
+    <input id="tag-input" placeholder="#태그 입력 (최대 30개)"><div id="tags"></div>
+    <button class="confirm_btn__z" onclick="submitPost()">발행</button>
+  </div>
+</header>
+<div class="se-components-wrap" id="doc">
+  <div class="se-component se-documentTitle"><div class="se-text-paragraph" contenteditable="true"></div></div>
+  <div class="se-component se-text"><div class="se-text-paragraph" contenteditable="true"></div></div>
+</div>
+<script>
+const Q = new URLSearchParams(location.search);
+let category = '', tags = [];
+function pick(c){ category = c; document.querySelector('.option_list__y').classList.remove('on'); }
+document.getElementById('tag-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && e.target.value.trim()) { tags.push(e.target.value.trim()); e.target.value = ''; }
+});
+function textComp(){ const c = document.createElement('div'); c.className = 'se-component se-text';
+  c.innerHTML = '<div class="se-text-paragraph" contenteditable="true"></div>'; return c; }
+if (Q.get('nopaste') !== '1') document.addEventListener('paste', e => {
+  const comp = e.target.closest && e.target.closest('.se-component.se-text'); if (!comp) return;
+  e.preventDefault();
+  const html = e.clipboardData.getData('text/html');
+  const para = comp.querySelector('.se-text-paragraph:last-child');
+  if (!para.textContent.trim()) para.remove();
+  const box = document.createElement('div'); box.innerHTML = html;
+  for (const el of [...box.children]) { const p = document.createElement('div'); p.className = 'se-text-paragraph';
+    p.contentEditable = 'true'; p.innerHTML = el.outerHTML; comp.appendChild(p); }
+  comp.appendChild(Object.assign(document.createElement('div'), {className: 'se-text-paragraph', contentEditable: 'true'}));
+}, true);
+document.getElementById('file').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    const c = document.createElement('div'); c.className = 'se-component se-image'; c.tabIndex = 0;
+    c.dataset.name = f.name; c.innerHTML = '<img src="' + r.result + '">';
+    c.addEventListener('click', () => c.classList.add('sel'));
+    c.addEventListener('keydown', ev => { if (ev.key === 'Enter') c.after(textComp()); });
+    document.getElementById('doc').appendChild(c);
+    if (Q.get('notrail') !== '1') document.getElementById('doc').appendChild(textComp());
+    e.target.value = '';
+  };
+  r.readAsDataURL(f);
+});
+async function submitPost(){
+  const comps = [...document.querySelectorAll('#doc .se-component:not(.se-documentTitle)')].map(c =>
+    c.classList.contains('se-image') ? {img: c.dataset.name} : {text: c.innerText.trim(), html: c.innerHTML});
+  await fetch('/submit', {method: 'POST', body: JSON.stringify({
+    title: document.querySelector('.se-documentTitle').innerText.trim(), comps, tags, category})});
+  location.href = '/post.html?blogId=me&logNo=223344556677';
+}
+</script></body></html>

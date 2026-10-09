@@ -1,0 +1,11 @@
+{
+  "_설명": "blog_id 와 github_token 만 채우면 됩니다. 이 파일은 맥에만 두고 저장소에 올리지 마세요.",
+  "blog_id": "네이버블로그아이디",
+  "github_token": "github_pat_여기에_토큰",
+  "repo": "sinmu911/relay",
+  "branch": "main",
+  "headless": false,
+  "max_attempts": 3,
+  "max_posts_per_run": 1,
+  "notify": true
+}

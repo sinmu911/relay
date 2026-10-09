@@ -1,0 +1,107 @@
+# 네이버 블로그 자동 올리기
+
+폰이나 PC에서 글을 쓰고 **[올리기]**를 누르면, 맥이 5분 안에 네이버 블로그에 올려요.
+
+```
+폰·PC  blog/write.html ──저장──▶ GitHub 저장소 (_blog/posts/*.md)
+                                          │ 5분마다 확인
+                                          ▼
+                    맥  _blog/uploader ──▶ 네이버 블로그 글쓰기 화면을 자동으로 눌러 발행
+```
+
+네이버는 블로그 글쓰기 API를 열어 두지 않아서, 맥이 사람처럼 네이버 글쓰기 화면을 직접 눌러 올려요.
+그래서 **맥이 켜져 있고 로그인돼 있어야** 올라가요(잠자기 상태면 깨어난 뒤 올라가요).
+
+---
+
+## 처음 설정 (한 번만)
+
+### 1. GitHub 토큰 만들기 (폰·맥에서 같이 써요)
+1. https://github.com/settings/personal-access-tokens/new 열기
+2. Repository access → **Only select repositories** → **relay**
+3. Permissions → **Contents** → **Read and write**
+4. Generate → 나온 `github_pat_…` 를 복사해 둠
+
+### 2. 맥에 업로더 설치
+터미널에서:
+```bash
+git clone https://github.com/sinmu911/relay.git ~/relay
+bash ~/relay/_blog/uploader/setup_mac.sh install
+open -e ~/.naver-blog-uploader/config.json
+```
+설정 파일에서 두 칸만 채우고 저장:
+- `blog_id` : 네이버 블로그 아이디 (blog.naver.com/**여기**)
+- `github_token` : 1번에서 만든 토큰
+
+### 3. 네이버 로그인 (한 번만)
+```bash
+bash ~/relay/_blog/uploader/setup_mac.sh login
+```
+뜬 창에서 직접 로그인하세요. **'로그인 상태 유지'를 꼭 켜세요.** 비밀번호는 어디에도 저장되지 않고,
+로그인 상태만 맥의 `~/.naver-blog-uploader/profile` 폴더에 남아요.
+
+### 4. 시험 실행 (발행은 안 함)
+글쓰기 화면에서 시험 글 하나를 **[올리기]** 한 뒤:
+```bash
+bash ~/relay/_blog/uploader/setup_mac.sh test
+```
+네이버 글쓰기 화면에 제목·본문·사진·태그를 다 채우고 **발행 버튼 직전에서 멈춰요.**
+`~/.naver-blog-uploader/logs/dryrun-*.png` 화면 사진으로 잘 들어갔는지 확인하세요.
+
+### 5. 자동 실행 켜기
+```bash
+bash ~/relay/_blog/uploader/setup_mac.sh start
+```
+이제 5분마다 확인해서 올려요. 끄기: `setup_mac.sh stop` · 기록 보기: `setup_mac.sh log`
+
+### 6. 폰·PC 글쓰기 화면
+`https://sinmu911.github.io/relay/blog/write.html` 을 열고 [설정]에 1번 토큰을 넣으면 끝.
+폰에서는 홈 화면에 추가해 두면 편해요.
+
+---
+
+## 글쓰기
+- **임시저장** : 저장만 하고 안 올림
+- **올리기** : 맥이 5분 안에 올림 (예약 시간을 넣으면 그 시간 이후 첫 확인 때)
+- **사진 넣기** : 커서 자리에 사진이 들어가요(폰 사진은 자동으로 줄여서 올림)
+- 본문 서식: 줄바꿈은 그대로, `**굵게**`, `# 큰 제목`, `- 목록`
+- 카테고리는 네이버 블로그에 있는 이름과 **똑같이** 써야 해요(없으면 올리지 않고 '실패'로 알려 줘요)
+
+PC에서 직접 `.md` 파일을 `_blog/posts/` 에 넣어도 돼요. 모양은 `_blog/posts/_예시.md` 참고.
+
+## 상태 뜻
+| 표시 | 뜻 | 할 일 |
+|---|---|---|
+| 임시저장 | 안 올림 | — |
+| 올라갈 차례 / 예약 | 맥이 곧 올림 | — |
+| 올라감 | 네이버에 올라감(링크 있음) | 고칠 땐 네이버에서 직접 |
+| 실패 n회 | 발행 전에 문제가 생겨 **아무것도 안 올라감**. 3번까지 자동 재시도 | 사유 보고 글을 고치거나 [다시 올리기] |
+| 확인 필요 | 발행은 눌렀는데 결과를 못 봄 → **올라갔을 수도 있음** | 블로그 확인. 안 올라갔으면 [다시 올리기] |
+| 같은 제목 있음 | 이미 올린 글과 제목이 같아서 멈춤(두 번 올리기 방지) | 제목을 바꾸거나 [다시 올리기] |
+| 글 형식 오류 | 제목·본문이 비었거나 형식이 틀림 | 고친 뒤 [올리기] |
+
+## 두 번 올라가는 것 막는 장치
+- 발행 버튼을 누르기 **직전에** 맥에 기록을 먼저 남겨요. 기록을 못 남기면 발행도 안 눌러요.
+- 누른 뒤 맥이 꺼지는 등으로 결과를 못 보면 자동으로 다시 올리지 않고 **확인 필요**로 멈춰요.
+- 이미 올린 글과 제목이 같으면 멈춰요.
+- 자동 실행과 손 실행이 겹쳐도 하나만 돌아요.
+- 5분에 한 편씩만 올려요(한꺼번에 여러 편 올리면 네이버가 이상하게 볼 수 있어서).
+
+## 문제 해결
+- **"로그인 필요" 알림** → `setup_mac.sh login` 다시
+- **계속 실패 · "○○를 못 찾았어요"** → 네이버가 글쓰기 화면을 바꾼 것일 수 있어요.
+  `~/.naver-blog-uploader/logs/fail-*.png` 화면 사진과 `setup_mac.sh log` 내용을 보내 주시면
+  `uploader/naver_editor.py` 맨 위 `SELECTORS` 만 고치면 돼요.
+- 맥 두 대에서 동시에 켜지 마세요(한 대만).
+
+## 파일
+| 경로 | 내용 |
+|---|---|
+| `blog/write.html` | 폰·PC 글쓰기 화면 |
+| `_blog/posts/` | 글 파일(.md) |
+| `_blog/images/` | 글에 넣은 사진 |
+| `_blog/state.json` | 올린 기록 사본(맥이 씀, 글쓰기 화면이 상태 표시에 사용) |
+| `_blog/uploader/` | 맥 업로더 (`naver_upload.py` 실행, `setup_mac.sh` 설치) |
+| `~/.naver-blog-uploader/` (맥) | 설정·로그인 상태·올린 기록 원본·로그 |
+
+시험 돌리기(개발용): `cd _blog/uploader && python -m pytest tests`
