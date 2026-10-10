@@ -74,6 +74,14 @@ class FakePublisher:
     def __exit__(self, *a):
         return False
 
+    def save_draft(self, post, images):
+        if self.mode == "login":
+            raise NotLoggedInError("로그인")
+        if self.mode == "before":
+            raise EditorError("제목 칸 없음")
+        self.log.append(("draft", post.path))
+        return None
+
     def publish(self, post, images, before_final_click, dry_run=False):
         assert all(p.exists() for p in images.values())
         if self.mode == "login":
@@ -327,3 +335,40 @@ def test_dry_run_failure_leaves_no_record(env):
     env.mode = "ok"
     assert env.runner().run() == ["published:_blog/posts/a.md"]
     assert env.rec()["attempts"] == 1
+
+
+class TitlesFeed:
+    def __init__(self, titles=None):
+        self._titles = list(titles or [])
+
+    def titles(self):
+        return list(self._titles)
+
+
+def test_draft_mode_saves_one_then_waits_for_owner_then_next(env):
+    env.cfg = {"max_attempts": 3, "max_posts_per_run": 1, "publish_mode": "draft"}
+    env.store.files = {"_blog/posts/a.md": md("첫 글", extra="publish_at: 2026-12-01 09:00\n"),
+                       "_blog/posts/b.md": md("둘째 글")}
+    env.feed = TitlesFeed()
+    # 예약 시각과 상관없이 목록 첫 글을 임시저장, 발행은 안 누름
+    assert env.runner().run() == ["drafted:_blog/posts/a.md"]
+    assert env.clicks == [("draft", "_blog/posts/a.md")]
+    assert env.rec()["status"] == "drafted"
+    # 사장님이 아직 발행 안 함 → 다음 글은 기다림
+    assert env.runner().run() == ["waiting_owner:_blog/posts/a.md"]
+    assert len(env.clicks) == 1
+    # 블로그에 올라온 게 보이면 발행으로 기록하고 다음 글 임시저장
+    env.feed = TitlesFeed(["첫 글"])
+    assert env.runner().run() == ["owner_published:_blog/posts/a.md", "drafted:_blog/posts/b.md"]
+    assert env.rec()["status"] == PUBLISHED
+    assert ("click", "_blog/posts/b.md") not in env.clicks
+
+
+def test_draft_mode_failure_retries_same_post_not_next(env):
+    env.cfg = {"max_attempts": 3, "max_posts_per_run": 1, "publish_mode": "draft"}
+    env.store.files = {"_blog/posts/a.md": md("첫 글"), "_blog/posts/b.md": md("둘째 글")}
+    env.feed = TitlesFeed()
+    env.mode = "before"
+    assert env.runner().run() == ["failed:_blog/posts/a.md"]
+    env.mode = "ok"
+    assert env.runner().run() == ["drafted:_blog/posts/a.md"]

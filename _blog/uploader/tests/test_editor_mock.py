@@ -183,3 +183,14 @@ def test_untrusted_paste_ignored_uses_real_clipboard_keeps_format(base_url, tmp_
     text = " ".join(c.get("text", "") for c in comps)
     assert "둘째 문단" in text and text.count("둘째 문단") == 1
     assert "<strong>" in html or "<b>" in html, html
+
+
+def test_save_draft_never_clicks_publish(base_url, tmp_path, images):
+    Handler.submissions.clear()
+    with publisher(tmp_path, f"{base_url}/editor.html") as pub:
+        shot = pub.save_draft(POST, images)
+    assert shot and shot.exists()
+    assert len(Handler.submissions) == 1            # /draft 한 번(발행 /submit 은 없음)
+    sub = Handler.submissions[-1]
+    assert "comps" not in sub and sub["title"] == "모의 시험 글"
+    assert sub["tags"] == ["화물", "운송"] and sub["category"] == "업무 일지"

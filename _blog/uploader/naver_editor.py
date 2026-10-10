@@ -42,6 +42,7 @@ SELECTORS = {
     "category_open": ["button[class*='selectbox_button']"],
     "category_list": "[class*='option_list']",
     "tag_input": ["#tag-input", "input[placeholder*='태그']"],
+    "save_draft": ["button[class*='save_btn']", "button[data-click-area='tpb.save']", "button:has-text('저장')"],   # 상단 [저장]
 }
 
 T_EDITOR_MS = 30000
@@ -192,6 +193,56 @@ class NaverPublisher:
                 page.close()
             except PlaywrightError:
                 pass
+
+    def save_draft(self, post: Post, images: Dict[str, Path]) -> Optional[Path]:
+        """발행은 누르지 않고 [저장](임시저장)까지만. 돌려주는 값은 확인용 화면 사진."""
+        page = self._ctx.new_page()
+        self._dialogs = []
+        page.on("dialog", self._on_dialog)
+        try:
+            frame = self._open_editor(page)
+            self._dismiss_popups(frame)
+            self._fill_title(frame, post.title)
+            self._fill_body(page, frame, post.segments, images)
+            self._verify_body(frame, post)
+            self._prefill_publish_layer(page, frame, post)
+            btn = _first_visible(frame, SELECTORS["save_draft"], T_SHORT_MS)
+            if not btn:
+                raise EditorError("[저장] 버튼을 못 찾았어요")
+            before = _squash(btn.inner_text())
+            btn.click()
+            # [저장] 옆 숫자(임시저장 글 수)가 바뀌거나 '저장되었습니다' 안내가 뜨면 저장된 것
+            saved = _wait_until(frame, lambda: _squash(btn.inner_text()) != before
+                                or frame.get_by_text("저장되었습니다").count() > 0, 10000)
+            shot = self._shot(page, "draft")
+            if not saved:
+                log.warning("임시저장 확인 표시를 못 봤어요(화면 사진 확인): %s", shot)
+            return shot
+        except (NotLoggedInError, EditorError):
+            self._shot(page, "fail")
+            raise
+        except PlaywrightError as e:
+            self._shot(page, "fail")
+            raise EditorError(f"화면 조작 오류: {e}{self._dialog_note()}") from e
+        finally:
+            try:
+                page.close()
+            except PlaywrightError:
+                pass
+
+    def _prefill_publish_layer(self, page: Page, frame: Frame, post: Post) -> None:
+        """발행 창의 카테고리·태그를 미리 채우고 창만 닫는다(발행은 안 누름). 안 되면 사장님이 발행할 때 넣으면 됨."""
+        try:
+            self._open_publish_layer(frame)
+            self._set_category(frame, post.category)
+            self._set_tags(page, frame, post.tags)
+            page.keyboard.press("Escape")
+            if _first_visible(frame, SELECTORS["publish_confirm"], 1000):
+                btn = _first_visible(frame, SELECTORS["publish_open"], 1000)
+                if btn:
+                    btn.click()   # 발행 창 열기 버튼을 다시 누르면 창이 닫힘
+        except (EditorError, PlaywrightError) as e:
+            log.warning("태그·카테고리를 미리 못 넣었어요(발행할 때 넣어 주세요): %s", e)
 
     def check_login(self) -> bool:
         """글쓰기 화면을 열어 본다 — 진짜 올릴 때와 똑같은 길로 로그인이 남아 있는지 확인."""

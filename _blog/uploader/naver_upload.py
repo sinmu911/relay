@@ -28,7 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from blogpost import Post  # noqa: E402
 from github_store import GitHubStore, StoreError  # noqa: E402
 from neo_source import NeoStore  # noqa: E402
-from queue_state import (ACTION_DUPLICATE, ACTION_INVALID, ACTION_UPLOAD, DUPLICATE, FAILED,  # noqa: E402
+from queue_state import (ACTION_DUPLICATE, ACTION_INVALID, ACTION_UPLOAD, DRAFTED, DUPLICATE, FAILED,  # noqa: E402
                          INVALID, NEEDS_CHECK, PUBLISHED, PUBLISHING, RunLock, StateError, StateFile,
                          decide, is_explicit_retry, merge_remote, now_str, recover_interrupted, taken_titles)
 from sources import BlogFeed, MultiStore, find_similar  # noqa: E402
@@ -49,6 +49,9 @@ DEFAULTS = {
     "neo_root": "",
     "neo_category": "",
     "check_blog_feed": True,  # 올리기 전 블로그 글 목록(RSS)에 같은 제목이 있으면 건너뜀
+    # draft = 임시저장까지만 하고 발행은 사장님이. 사장님이 발행한 게 블로그 목록에 보이면 다음 글을 임시저장.
+    # publish = 정해진 시각(when)에 프로그램이 발행까지.
+    "publish_mode": "draft",
 }
 SOURCES = ("github", "neo")
 
@@ -79,6 +82,8 @@ def load_config(path: Path) -> dict:
             raise ConfigError("설정의 repo 는 '주인/저장소' 형식이어야 해요")
     if "neo" in sources and not Path(os.path.expanduser(str(cfg.get("neo_root", "")))).is_dir():
         raise ConfigError(f"설정의 neo_root(블로그_NEO 폴더)가 없어요: {cfg.get('neo_root', '')}")
+    if cfg["publish_mode"] not in ("draft", "publish"):
+        raise ConfigError("설정의 publish_mode 는 \"draft\" 또는 \"publish\" 여야 해요")
     for key in ("max_attempts", "max_posts_per_run"):
         if not isinstance(cfg[key], int) or cfg[key] < 1:
             raise ConfigError(f"설정의 {key} 는 1 이상 숫자여야 해요")
@@ -149,6 +154,11 @@ class Runner:
             self.notify("확인 필요", f"{state['posts'][path].get('title', path)} — 올리던 중 멈췄어요. 블로그를 확인해 주세요.")
         self.state_file.save(state)
 
+        draft_mode = self.cfg.get("publish_mode", "publish") == "draft" and not dry_run
+        if draft_mode and self._waiting_for_owner(state, events):
+            self.state_file.save(state)
+            files = []   # 앞 글을 사장님이 아직 발행 안 함 — 다음 글은 그 뒤에
+
         uploads = 0
         with contextlib.ExitStack() as stack:
             publisher = None
@@ -162,7 +172,8 @@ class Runner:
                     continue
                 rec = state["posts"].get(post.path)
                 # 시험 실행은 발행을 안 누르니 예약 시각을 기다리지 않는다(다음 주 글도 미리 시험)
-                decide_now = datetime.max if dry_run else now
+                # 임시저장 방식은 시각이 아니라 '앞 글 발행됨'이 신호라 시각을 기다리지 않는다
+                decide_now = datetime.max if (dry_run or draft_mode) else now
                 d = decide(post, rec, decide_now, taken_titles(state), self.cfg["max_attempts"])
                 log.info("%s → %s %s", post.path, d.action, d.reason)
                 if d.action == ACTION_INVALID:
@@ -202,6 +213,9 @@ class Runner:
                             log.error("브라우저를 못 띄워서 다음에 다시: %s", e)
                             events.append("browser_error")
                             break
+                    if draft_mode:
+                        events.append(self._draft_one(publisher, state, post, f["sha"]))
+                        break   # 한 번에 한 편만, 목록 순서대로(실패하면 다음 실행에 같은 글부터 다시)
                     events.append(self._upload_one(publisher, state, post, f["sha"], dry_run))
                     if events[-1].startswith("login:"):
                         break
@@ -270,6 +284,57 @@ class Runner:
         self.notify("올렸어요", post.title)
         log.info("올림 %s → %s", post.path, url)
         return f"published:{post.path}"
+
+    def _waiting_for_owner(self, state: dict, events: List[str]) -> bool:
+        """임시저장해 둔 글이 블로그에 올라왔는지 본다. 아직 안 올라온 게 있으면 True(다음 글은 기다림)."""
+        drafted = [(p, r) for p, r in state["posts"].items() if r.get("status") == DRAFTED]
+        if not drafted:
+            return False
+        if self.feed is None:
+            return True
+        try:
+            titles = self.feed.titles()
+        except StoreError as e:
+            log.warning("블로그 글 목록 확인이 안 돼서 다음 글은 기다림: %s", e)
+            events.append("feed_error")
+            return True
+        waiting = False
+        for path, rec in drafted:
+            seen = find_similar(rec.get("title", ""), titles)
+            if seen:
+                state["posts"][path] = dict(rec, status=PUBLISHED, at=now_str(self.now_fn()), error="")
+                self.notify("발행 확인", f"{rec.get('title', '')} — 블로그에 올라온 걸 봤어요. 다음 글을 임시저장할게요.")
+                events.append(f"owner_published:{path}")
+            else:
+                waiting = True
+                events.append(f"waiting_owner:{path}")
+        return waiting
+
+    def _draft_one(self, publisher, state: dict, post: Post, blob_sha: str) -> str:
+        from naver_editor import NotLoggedInError
+
+        prev = state["posts"].get(post.path) or {}
+        same_try = (prev.get("status") == FAILED and prev.get("hash") == post.content_hash
+                    and prev.get("retry", "") == post.retry)
+        attempts = (prev.get("attempts", 0) if same_try else 0) + 1
+        with tempfile.TemporaryDirectory(prefix="naver-blog-") as tmp:
+            try:
+                images = self.store.fetch_images(post, Path(tmp))
+                publisher.save_draft(post, images)
+            except NotLoggedInError:
+                self._login_alert(state)
+                return f"login:{post.path}"
+            except Exception as e:  # noqa: BLE001
+                state["posts"][post.path] = _record(post, blob_sha, FAILED, self.now_fn(), prev,
+                                                    retry=post.retry, attempts=attempts, error=str(e)[:300])
+                self.notify("임시저장 실패", f"{post.title} — {str(e)[:80]}")
+                log.error("임시저장 실패 %s (%d번째): %s", post.path, attempts, e)
+                return f"failed:{post.path}"
+        state["posts"][post.path] = _record(post, blob_sha, DRAFTED, self.now_fn(), prev,
+                                            retry=post.retry, attempts=attempts)
+        self.notify("임시저장했어요", f"{post.title} — 네이버 블로그 앱 [글쓰기] → 임시저장 글에서 확인하고 발행해 주세요.")
+        log.info("임시저장 %s", post.path)
+        return f"drafted:{post.path}"
 
     def _login_alert(self, state: dict) -> None:
         meta = state.setdefault("meta", {})

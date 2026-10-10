@@ -24,14 +24,16 @@ FAILED = "failed"
 NEEDS_CHECK = "needs_check"
 INVALID = "invalid"
 DUPLICATE = "duplicate"
+DRAFTED = "drafted"       # 임시저장까지 해 둠 — 사장님이 직접 발행
 # 같은 제목 검사에 쓰는 상태: 네이버에 올라갔거나 올라갔을 수 있는 글
-MAYBE_ON_NAVER = (PUBLISHED, PUBLISHING, NEEDS_CHECK)
+MAYBE_ON_NAVER = (PUBLISHED, PUBLISHING, NEEDS_CHECK, DRAFTED)
 
 ACTION_UPLOAD = "upload"
 ACTION_SKIP = "skip"
 ACTION_WAIT = "wait"
 ACTION_INVALID = "invalid"
 ACTION_DUPLICATE = "duplicate"
+DRAFTED = "drafted"       # 임시저장까지 해 둠 — 사장님이 직접 발행
 
 
 class StateError(Exception):
@@ -65,6 +67,8 @@ def decide(post: Post, rec: Optional[dict], now: datetime, taken_titles: Dict[st
         return Decision(ACTION_SKIP, "이미 올림")
     if st == PUBLISHING:
         return Decision(ACTION_SKIP, "올리는 중 기록 있음")
+    if st == DRAFTED:
+        return Decision(ACTION_SKIP, "임시저장해 둠 — 발행은 사장님이")
     explicit_retry = is_explicit_retry(post, rec)
     if st in (NEEDS_CHECK, DUPLICATE) and not explicit_retry:
         return Decision(ACTION_SKIP, "확인 필요 — [다시 올리기]를 눌러야 다시 올림")
