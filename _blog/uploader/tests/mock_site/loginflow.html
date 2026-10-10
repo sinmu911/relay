@@ -1,0 +1,8 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>로그인
+<script>
+// 로그인 성공 흉내: 쿠키를 심고, '기기 등록' 화면처럼 잠깐 머문 뒤 블로그로 넘어감
+const persist = location.search.includes("persist=1");
+const exp = persist ? "; expires=" + new Date(Date.now() + 365*864e5).toUTCString() : "";
+setTimeout(() => { document.cookie = "NID_AUT=a" + exp + "; path=/"; document.cookie = "NID_SES=b" + exp + "; path=/"; }, 300);
+setTimeout(() => { location.href = "/post.html"; }, 1500);
+</script></body></html>
