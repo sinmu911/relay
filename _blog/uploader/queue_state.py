@@ -33,7 +33,6 @@ ACTION_SKIP = "skip"
 ACTION_WAIT = "wait"
 ACTION_INVALID = "invalid"
 ACTION_DUPLICATE = "duplicate"
-DRAFTED = "drafted"       # 임시저장까지 해 둠 — 사장님이 직접 발행
 
 
 class StateError(Exception):
