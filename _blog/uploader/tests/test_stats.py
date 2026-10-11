@@ -34,3 +34,16 @@ def test_run_stats_once_a_day_after_9(tmp_path, monkeypatch):
     assert run(15) is False and len(calls) == 1      # 같은 날 또 안 함
     assert run(10, d=11) is True and len(calls) == 2
     assert str(calls[0]).endswith("상태/통계")
+
+
+def test_capture_reads_iframe_and_links(tmp_path):
+    inner = "<p>이번 주 조회수 777</p><a href='https://example.com/report'>리포트</a>"
+    import urllib.parse
+    html = "data:text/html;charset=utf-8," + urllib.parse.quote(
+        f"<p>메뉴</p><iframe srcdoc=\"{inner}\"></iframe>")
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(str(tmp_path / "prof"), headless=True)
+        capture(ctx, "me", tmp_path / "out", settle_ms=300, pages=[("통계", html)])
+        ctx.close()
+    text = (tmp_path / "out" / "통계.txt").read_text(encoding="utf-8")
+    assert "이번 주 조회수 777" in text and "https://example.com/report" in text

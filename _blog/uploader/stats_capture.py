@@ -13,9 +13,13 @@ log = logging.getLogger(__name__)
 
 PAGES: List[Tuple[str, str]] = [
     ("블로그통계", "https://admin.blog.naver.com/{blog_id}/stat/today"),
-    ("크리에이터어드바이저", "https://creator-advisor.naver.com/naver_blog/{blog_id}/trends"),
+    ("크리에이터어드바이저", "https://creator-advisor.naver.com/naver_blog/{blog_id}"),
+    ("검색트렌드", "https://creator-advisor.naver.com/naver_blog/{blog_id}/trends"),
     ("애드포스트", "https://adpost.naver.com/"),
+    ("애드포스트수입", "https://adpost.naver.com/mypage/income"),
 ]
+LINKS_JS = """() => [...document.querySelectorAll('a[href]')].map(a => [a.innerText.trim().slice(0, 40), a.href])
+  .filter(([t, h]) => h.startsWith('http')).slice(0, 300)"""
 MAX_TEXT = 30000
 
 
@@ -29,8 +33,25 @@ def capture(ctx, blog_id: str, out_dir: Path, settle_ms: int = 8000, pages=None)
         try:
             page.goto(url.format(blog_id=blog_id), wait_until="domcontentloaded", timeout=30000)
             page.wait_for_timeout(settle_ms)          # 숫자가 늦게 그려지는 화면이라 잠깐 기다림
-            text = page.inner_text("body")[:MAX_TEXT]
-            (out_dir / f"{name}.txt").write_text(f"{page.url}\n\n{text}", encoding="utf-8")
+            # 통계 숫자는 안쪽 틀(iframe)에 그려지는 경우가 많아 틀마다 글자를 모은다
+            parts, links = [], []
+            for fr in page.frames:
+                try:
+                    body = fr.inner_text("body")
+                    if body.strip():
+                        parts.append(f"--- [틀] {fr.url}\n{body}")
+                    links.extend(fr.evaluate(LINKS_JS))
+                except Exception:  # noqa: BLE001
+                    continue
+            seen, link_lines = set(), []
+            for t, h in links:
+                if h not in seen:
+                    seen.add(h)
+                    link_lines.append(f"{t} | {h}")
+            text = ("\n\n".join(parts))[:MAX_TEXT]
+            (out_dir / f"{name}.txt").write_text(
+                f"{page.url}\n\n{text}\n\n=== 링크(다음 수집 주소 고를 때 참고) ===\n" + "\n".join(link_lines[:300]),
+                encoding="utf-8")
             page.screenshot(path=str(out_dir / f"{name}.png"), full_page=True)
             results[name] = "ok"
         except Exception as e:  # noqa: BLE001 — 한 화면이 안 돼도 나머지는 받는다
