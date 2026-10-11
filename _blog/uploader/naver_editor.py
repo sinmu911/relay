@@ -570,7 +570,7 @@ EDIT_URL = "https://blog.naver.com/PostUpdateForm.naver?blogId={blog_id}&logNo={
 
 
 def _select_like_person(page: Page, frame: Frame, sel: dict) -> bool:
-    """찾은 글자 앞을 마우스로 누르고 Shift+→ 로 글자 수만큼 잡는다. 잡힌 글자가 정확히 맞을 때만 True."""
+    """찾은 글자 앞을 마우스로 누르고 Shift+→ 로 글자 수만큼 잡는다. 잡힌 글자가 다르게 보이면 False."""
     ox = oy = 0.0
     if frame.parent_frame is not None:
         box = frame.frame_element().bounding_box()
@@ -582,7 +582,10 @@ def _select_like_person(page: Page, frame: Frame, sel: dict) -> bool:
     for _ in range(sel["n"]):
         page.keyboard.press("Shift+ArrowRight")
     page.wait_for_timeout(100)
-    return frame.evaluate(SELECTION_JS) == sel["want"]
+    # 진짜 네이버 에디터는 선택을 자체 방식으로 관리해 브라우저 선택이 늘 빈칸이다(10-11 시험).
+    # 빈칸이면 여기선 못 보니 넘어가고, 바꾼 뒤 '글자 수·남은 개수' 검사로 맞았는지 가린다.
+    got = frame.evaluate(SELECTION_JS)
+    return got == sel["want"] or got == ""
 
 
 def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str, Path],
