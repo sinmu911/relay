@@ -524,7 +524,8 @@ def interactive_login(profile_dir: Path, login_url: str = LOGIN_URL, wait_second
 # 네이버 에디터는 스크립트로 잡은 선택을 무시하고 자기 커서 자리에 글을 넣어서(10-11 시험 두 번 확인).
 FIND_TEXT_JS = """(oldText) => {
   const root = document.querySelector('.se-components-wrap') || document.body;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode: n =>
+    n.parentElement && n.parentElement.closest('.se-text-paragraph') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT});
   while (walker.nextNode()) {
     const node = walker.currentNode, v = node.nodeValue, start = v.indexOf(oldText);
     if (start < 0) continue;
@@ -546,7 +547,8 @@ PROBE_JS = "() => { const p = document.querySelector('[data-edit-probe]'); retur
 # 문서 전체 글자(보이지 않는 글자 뺌) — 예상 밖 변화가 어디서 났는지 앞뒤 글자로 보여 주려고
 DOC_TEXT_JS = """() => {
   const root = document.querySelector('.se-components-wrap') || document.body;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode: n =>
+    n.parentElement && n.parentElement.closest('.se-text-paragraph') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT});
   const hidden = new RegExp('[' + String.fromCharCode(0x200b, 0xfeff) + ']', 'g');
   const out = [];
   while (walker.nextNode()) out.push(walker.currentNode.nodeValue.replace(hidden, ''));
@@ -572,10 +574,12 @@ def _diff_note(a: str, b: str, pad: int = 15) -> str:
     if a == b:
         return "(없음)"
     return (f"전 {a[max(0, i - pad):len(a) - j + pad][:200]!r} → 후 {b[max(0, i - pad):len(b) - j + pad][:200]!r}")
-# 본문 글자 수·찾는 글자 개수 — 바꾼 뒤 '딱 예상만큼' 바뀌었는지 확인용(에디터가 넣는 보이지 않는 글자는 뺌)
+# 본문 글자 수·찾는 글자 개수 — 바꾼 뒤 '딱 예상만큼' 바뀌었는지 확인용(에디터가 넣는 보이지 않는 글자는 뺌).
+# 제목·본문 문단(.se-text-paragraph) 글자만 센다 — 사진 옆 버튼 글씨('대표사진' 등)는 클릭에 따라 바뀌어서(10-11 시험).
 TEXT_STATS_JS = """(oldText) => {
   const root = document.querySelector('.se-components-wrap') || document.body;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode: n =>
+    n.parentElement && n.parentElement.closest('.se-text-paragraph') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT});
   const hidden = new RegExp('[' + String.fromCharCode(0x200b, 0xfeff) + ']', 'g');
   let len = 0, count = 0;
   while (walker.nextNode()) {

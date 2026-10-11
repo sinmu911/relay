@@ -300,3 +300,22 @@ def test_diff_note_shows_only_unexpected_change():
     exp = _expected_doc(before, "앞 글 **진한", "**", "")
     assert _diff_note(exp, after_ok) == "(없음)"
     assert "엉뚱" in _diff_note(exp, after_bad) and "**진한" not in _diff_note(exp, after_bad)
+
+
+def test_edit_ignores_editor_button_text_changes(base_url, tmp_path):
+    """사진 옆 버튼 글씨처럼 본문 밖 글자가 바뀌어도 '안 바뀜'으로 보지 않는다(본문 문단만 센다)."""
+    from naver_editor import apply_edits
+    with publisher(tmp_path, f"{base_url}/editor.html?owncaret=1") as pub:
+        page = pub._ctx.new_page()
+        frame = pub._open_editor(page)
+        pub._dismiss_popups(frame)
+        frame.locator(".se-component.se-text .se-text-paragraph").last.click()
+        page.keyboard.insert_text("특징은 **진한** 유황")
+        frame.evaluate("""() => { const b = document.createElement('span'); b.textContent = '사진 삭제';
+            document.getElementById('doc').appendChild(b);
+            document.addEventListener('keydown', () => { b.textContent = '대표사진 삭제'; }, true); }""")
+        pub._open_editor = lambda _p: frame
+        _, _, done = apply_edits(pub, "1", {"replace": [{"old": "**", "new": "", "all": True}]}, {},
+                                 edit_url=f"{base_url}/editor.html")
+        text = frame.locator(".se-component.se-text").first.inner_text()
+    assert done[0].startswith("바꿈 2곳") and "**" not in text
