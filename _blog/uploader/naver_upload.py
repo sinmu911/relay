@@ -488,7 +488,7 @@ def run_edit(cfg: dict, state_file: StateFile, publisher_factory, notify, dry_ru
             page, frame, done = apply_edits(pub, spec["log_no"], spec, images)
             for line in done:
                 print(" -", line)
-            missing = [d for d in done if d.startswith(("못 찾음", "그림 파일 없음", "그림 넣을 자리"))]
+            missing = [d for d in done if d.startswith(("못 찾음", "안 바뀜", "그림 파일 없음", "그림 넣을 자리"))]
             shot = pub._shot(page, "edit")
             if dry_run:
                 print(f"시험 끝 — 발행 안 눌렀어요. 화면 사진: {shot}")
