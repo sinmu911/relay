@@ -6,6 +6,7 @@
   python naver_upload.py run --dry-run       시험: 발행 직전까지만 채우고 화면을 logs 폴더에 저장
   python naver_upload.py run --post 경로      그 글 하나만
   python naver_upload.py status              글마다 지금 상태 보기
+  python naver_upload.py stats               블로그 통계·애드포스트 화면을 드라이브에 저장(하루 한 번 자동)
 """
 from __future__ import annotations
 
@@ -52,6 +53,7 @@ DEFAULTS = {
     # draft = 임시저장까지만 하고 발행은 사장님이. 사장님이 발행한 게 블로그 목록에 보이면 다음 글을 임시저장.
     # publish = 정해진 시각(when)에 프로그램이 발행까지.
     "publish_mode": "draft",
+    "stats_daily": True,      # 하루 한 번(9시 이후) 통계·애드포스트 화면을 블로그_NEO/상태/통계/ 에 저장
 }
 SOURCES = ("github", "neo")
 
@@ -415,6 +417,44 @@ def do_login(config_path: Path, login_fn=None, publisher_cls=None) -> int:
     return 1
 
 
+def run_stats(cfg: dict, state_file: StateFile, force: bool = False, now_fn=datetime.now,
+              ctx_factory=None) -> bool:
+    """하루 한 번 통계 화면 저장. 실패해도 올리기에는 영향 없음."""
+    now = now_fn()
+    lock = RunLock(APP_HOME / "run.lock")
+    if not lock.acquire():
+        return False
+    try:
+        state = state_file.load()
+        meta = state.setdefault("meta", {})
+        if not force and (now.hour < 9 or meta.get("stats_date") == now.strftime("%Y-%m-%d")):
+            return False
+        out_dir = Path(os.path.expanduser(str(cfg["neo_root"]))) / "상태" / "통계"
+        try:
+            from stats_capture import capture
+            if ctx_factory:
+                results = capture(ctx_factory(), cfg["blog_id"], out_dir)
+            else:
+                from playwright.sync_api import sync_playwright
+                with sync_playwright() as p:
+                    ctx = p.chromium.launch_persistent_context(str(APP_HOME / "profile"),
+                                                               headless=bool(cfg["headless"]), locale="ko-KR",
+                                                               viewport={"width": 1280, "height": 900})
+                    try:
+                        results = capture(ctx, cfg["blog_id"], out_dir)
+                    finally:
+                        ctx.close()
+        except Exception as e:  # noqa: BLE001
+            log.warning("통계 화면 저장 실패: %s", e)
+            return False
+        meta["stats_date"] = now.strftime("%Y-%m-%d")
+        state_file.save(state)
+        log.info("통계 화면 저장: %s", results)
+        return True
+    finally:
+        lock.release()
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="네이버 블로그 자동 올리기")
     ap.add_argument("--config", type=Path, default=APP_HOME / "config.json")
@@ -425,6 +465,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     r.add_argument("--dry-run", action="store_true", help="발행 직전까지만(시험)")
     r.add_argument("--post", help="이 글 하나만 (예: _blog/posts/2026-10-09-120000.md)")
     sub.add_parser("status", help="글별 상태")
+    sub.add_parser("stats", help="통계·애드포스트 화면 저장")
     args = ap.parse_args(argv)
     setup_logging(args.verbose)
 
@@ -463,8 +504,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         feed = BlogFeed(cfg["blog_id"]) if cfg["check_blog_feed"] else None
         runner = Runner(cfg, store, state_file, RunLock(APP_HOME / "run.lock"), publisher_factory, notify,
                         feed=feed)
+        if args.cmd == "stats":
+            return 0 if run_stats(cfg, state_file, force=True) else 1
         events = runner.run(dry_run=args.dry_run, only_path=args.post)
         log.info("끝: %s", ", ".join(events) or "올릴 글 없음")
+        if cfg["stats_daily"] and "neo" in cfg["sources"] and not args.dry_run and "locked" not in events:
+            run_stats(cfg, state_file)
         return 0
     except StateError as e:
         notify("멈춤", "올리기 기록 파일이 깨져서 멈췄어요. 로그를 확인해 주세요.")

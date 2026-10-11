@@ -95,6 +95,10 @@ case "${1:-}" in
   log)
     tail -n 40 "$APP/logs/uploader.log"
     ;;
+  stats)
+    need_install
+    "$PY" "$CODE/naver_upload.py" stats
+    ;;
   *)
     sed -n '2,9p' "$0"
     exit 1
