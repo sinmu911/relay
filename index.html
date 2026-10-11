@@ -79,6 +79,19 @@ window.addEventListener('message',async ev=>{
     }
   }catch(e){ stoast('알림 설정 실패: '+(e&&e.message||e)); }
 });
+// CHG-317 (10-10): 안쪽 화면(구글 로그인 대시보드, 사장님)이 Mac 사본을 달라고 하면 맨 위 창인 여기서 받아 넘겨준다.
+//  주소는 테일스케일 안쪽 주소 모양(…ts.net/relay/data)만 받는다. 테일스케일이 꺼져 있거나 Mac 이 안 닿으면 실패를 돌려주고, 안쪽 화면은 지금처럼 구글 길로 간다.
+window.addEventListener('message',async ev=>{
+  if(!/^https:\/\/[a-z0-9-]+-script\.googleusercontent\.com$/.test(ev.origin)) return;
+  const m=ev.data||{}; if(m.type!=='relay-mac') return;
+  const back=o=>{ try{ ev.source.postMessage(Object.assign({type:'relay-mac-data',id:String(m.id||'')},o),ev.origin); }catch(e){} };
+  if(!/^https:\/\/[a-z0-9-]+\.[a-z0-9-]+\.ts\.net\/relay\/data$/.test(String(m.url||''))){ back({ok:false,error:'URL'}); return; }
+  const c=new AbortController(), t=setTimeout(()=>c.abort(),1100);
+  try{ const r=await fetch(m.url,{cache:'no-store',signal:c.signal}); if(!r.ok) throw new Error('HTTP '+r.status);
+    const j=await r.json(); if(!j||!j.ok||!j.data||!Array.isArray(j.data.rows)) throw new Error('BAD'); back({ok:true,data:j.data}); }
+  catch(e){ back({ok:false,error:String(e&&e.message||e).slice(0,40)}); }
+  finally{ clearTimeout(t); }
+});
 const ua=navigator.userAgent||'';
 const ios=/iPhone|iPad|iPod/.test(ua), android=/Android/.test(ua);
 const inApp=/KAKAOTALK|NAVER\(inapp|Line\/|Instagram|FBAN|FBAV|DaumApps/i.test(ua);
