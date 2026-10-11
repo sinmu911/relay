@@ -545,9 +545,10 @@ SELECT_TEXT_JS = """([oldText, pad]) => {
 TEXT_STATS_JS = """(oldText) => {
   const root = document.querySelector('.se-components-wrap') || document.body;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const hidden = new RegExp('[' + String.fromCharCode(0x200b, 0xfeff) + ']', 'g');
   let len = 0, count = 0;
   while (walker.nextNode()) {
-    const v = walker.currentNode.nodeValue.replace(/[\u200b\ufeff]/g, '');
+    const v = walker.currentNode.nodeValue.replace(hidden, '');
     len += v.length;
     for (let i = v.indexOf(oldText); i >= 0; i = v.indexOf(oldText, i + oldText.length)) count++;
   }
