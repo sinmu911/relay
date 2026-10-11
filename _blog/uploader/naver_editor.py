@@ -516,3 +516,87 @@ def interactive_login(profile_dir: Path, login_url: str = LOGIN_URL, wait_second
             except PlaywrightError:
                 pass
     return status, session_only
+
+
+# ── 이미 올린 글 고치기(수정 화면) ─────────────────────────────────────
+# 수정 화면엔 [저장]이 없다(임시저장 불가). 사장님 결정(10-11): 시험(edit-test)으로 화면 확인 → edit 로 프로그램이 [발행]까지.
+SELECT_TEXT_JS = """(oldText) => {
+  const root = document.querySelector('.se-components-wrap') || document.body;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  while (walker.nextNode()) {
+    const node = walker.currentNode, idx = node.nodeValue.indexOf(oldText);
+    if (idx >= 0) {
+      node.parentElement.scrollIntoView({block: 'center'});
+      const r = document.createRange(); r.setStart(node, idx); r.setEnd(node, idx + oldText.length);
+      const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      return true;
+    }
+  }
+  return false;
+}"""
+CARET_AFTER_JS = """(anchor) => {
+  const paras = [...document.querySelectorAll('.se-component.se-text .se-text-paragraph')];
+  const p = paras.find(el => el.innerText.includes(anchor));
+  if (!p) return false;
+  p.scrollIntoView({block: 'center'});
+  const r = document.createRange(); r.selectNodeContents(p); r.collapse(false);
+  const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+  return true;
+}"""
+EDIT_URL = "https://blog.naver.com/PostUpdateForm.naver?blogId={blog_id}&logNo={log_no}"
+
+
+def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str, Path],
+                edit_url: str = EDIT_URL):
+    """수정 화면을 열고 spec 대로 고친다. [발행]은 누르지 않는다. 돌려주는 값: (화면, 편집틀, 한 일 목록)."""
+    page = pub._ctx.new_page()
+    page.on("dialog", pub._on_dialog)
+    done: List[str] = []
+    old_url, pub.write_url = pub.write_url, edit_url.replace("{log_no}", str(log_no))
+    try:
+        frame = pub._open_editor(page)
+    finally:
+        pub.write_url = old_url
+    page = frame.page
+    pub._dismiss_popups(frame)
+    # 글자 바꾸기: 찾은 곳을 선택한 뒤 진짜 키보드 입력으로 덮어쓴다(에디터가 바뀐 걸 확실히 알게)
+    for item in spec.get("replace", []):
+        old, new = item["old"], item.get("new", "")
+        n = 0
+        while n < (200 if item.get("all") else 1) and frame.evaluate(SELECT_TEXT_JS, old):
+            if new:
+                page.keyboard.insert_text(new)
+            else:
+                page.keyboard.press("Backspace")
+            n += 1
+            page.wait_for_timeout(150)
+        done.append(f"바꿈 {n}곳: {old[:20]!r} → {new[:20]!r}" if n else f"못 찾음: {old[:30]!r}")
+    for item in spec.get("insert_images", []):
+        path = images.get(item["file"])
+        if not path:
+            done.append(f"그림 파일 없음: {item['file']}")
+            continue
+        if not frame.evaluate(CARET_AFTER_JS, item["after"]):
+            done.append(f"그림 넣을 자리 못 찾음: {item['after'][:30]!r}")
+            continue
+        page.keyboard.press("Enter")
+        cnt = frame.locator(SELECTORS["image_component"]).count()
+        btn = _first_visible(frame, SELECTORS["image_button"], T_SHORT_MS)
+        if not btn:
+            raise EditorError("사진 버튼을 못 찾았어요")
+        with page.expect_file_chooser(timeout=15000) as chooser:
+            btn.click()
+        chooser.value.set_files(str(path))
+        if not _wait_until(frame, lambda: frame.locator(SELECTORS["image_component"]).count() > cnt, T_IMAGE_MS):
+            raise EditorError(f"그림이 안 들어갔어요: {path.name}")
+        page.wait_for_timeout(1500)
+        done.append(f"그림 추가: {item['file']} (← {item['after'][:20]!r} 뒤)")
+    return page, frame, done
+
+
+def publish_edit(pub: "NaverPublisher", page: Page, frame: Frame, log_no: str) -> bool:
+    """고친 글을 [발행](수정 반영)한다. 주소가 글 보기로 바뀌면 True."""
+    confirm = pub._open_publish_layer(frame)
+    confirm.click()
+    return _wait_until(page, lambda: "PostUpdateForm" not in page.url and str(log_no) in page.url,
+                       T_AFTER_PUBLISH_MS)

@@ -194,3 +194,30 @@ def test_save_draft_never_clicks_publish(base_url, tmp_path, images):
     sub = Handler.submissions[-1]
     assert "comps" not in sub and sub["title"] == "모의 시험 글"
     assert sub["tags"] == ["화물", "운송"] and sub["category"] == "업무 일지"
+
+
+def test_apply_edits_replaces_text_without_publishing(base_url, tmp_path):
+    from naver_editor import apply_edits
+    Handler.submissions.clear()
+    post = parse_post("p.md", "---\ntitle: 옛 제목\nstatus: ready\n---\n요금 **1,200엔** 이에요\n\n끝 인사")
+    with publisher(tmp_path, f"{base_url}/editor.html?notrail=1") as pub:
+        assert pub.publish(post, {}, lambda: None, dry_run=True) is None
+    # 모의 화면은 새로 열면 비어 있으니 같은 화면에 글을 채운 뒤 고치기를 시험한다
+    with publisher(tmp_path, f"{base_url}/editor.html") as pub:
+        page = pub._ctx.new_page()
+        frame = pub._open_editor(page)
+        pub._dismiss_popups(frame)
+        pub._fill_title(frame, "옛 제목 후기")
+        pub._insert_html(page, frame, post.segments[0])
+        pub.write_url = f"{base_url}/editor.html"
+        spec = {"replace": [{"old": "옛 제목 후기", "new": "새 제목 2026"}, {"old": "1,200엔", "new": "1,300엔"},
+                            {"old": "없는 글자", "new": "x"}]}
+        import naver_editor
+        orig = pub._open_editor
+        pub._open_editor = lambda _p: frame
+        _, _, done = apply_edits(pub, "1", spec, {}, edit_url=f"{base_url}/editor.html")
+        pub._open_editor = orig
+        text = frame.locator("#doc").inner_text()
+    assert "새 제목 2026" in text and "1,300엔" in text and "1,200엔" not in text
+    assert any(d.startswith("못 찾음") for d in done)
+    assert Handler.submissions == []   # 발행 안 함

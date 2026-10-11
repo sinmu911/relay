@@ -99,6 +99,14 @@ case "${1:-}" in
     need_install
     "$PY" "$CODE/naver_upload.py" stats
     ;;
+  edit-test)
+    need_install
+    "$PY" "$CODE/naver_upload.py" edit --dry-run
+    ;;
+  edit)
+    need_install
+    "$PY" "$CODE/naver_upload.py" edit
+    ;;
   *)
     sed -n '2,9p' "$0"
     exit 1

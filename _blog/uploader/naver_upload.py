@@ -7,6 +7,7 @@
   python naver_upload.py run --post 경로      그 글 하나만
   python naver_upload.py status              글마다 지금 상태 보기
   python naver_upload.py stats               블로그 통계·애드포스트 화면을 드라이브에 저장(하루 한 번 자동)
+  python naver_upload.py edit [--dry-run]    이미 올린 글 고치기(블로그_NEO/상태/글수정_대기.json). 시험은 고친 화면만 찍고 닫음
 """
 from __future__ import annotations
 
@@ -455,6 +456,60 @@ def run_stats(cfg: dict, state_file: StateFile, force: bool = False, now_fn=date
         lock.release()
 
 
+EDIT_SPEC_REL = Path("상태") / "글수정_대기.json"
+
+
+def run_edit(cfg: dict, state_file: StateFile, publisher_factory, notify, dry_run: bool = False) -> int:
+    """글수정_대기.json 의 수정 하나를 한다. 같은 id 는 한 번만(기록은 state meta.edits_done)."""
+    from naver_editor import apply_edits, publish_edit
+    root = Path(os.path.expanduser(str(cfg["neo_root"])))
+    spec_path = root / EDIT_SPEC_REL
+    if not spec_path.exists():
+        print(f"고칠 글 목록이 없어요: {spec_path}")
+        return 1
+    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    lock = RunLock(APP_HOME / "run.lock")
+    if not lock.acquire():
+        print("자동 실행이 돌고 있어요. 1~2분 뒤에 다시 해 주세요.")
+        return 1
+    try:
+        state = state_file.load()
+        done_ids = state.setdefault("meta", {}).setdefault("edits_done", {})
+        if spec["id"] in done_ids and not dry_run:
+            print(f"이미 고친 글이에요({done_ids[spec['id']]}). 다시 하려면 id 를 바꿔 주세요.")
+            return 0
+        images = {}
+        img_dir = root / spec.get("image_dir", "")
+        for item in spec.get("insert_images", []):
+            p = img_dir / item["file"]
+            if p.is_file():
+                images[item["file"]] = p
+        with publisher_factory() as pub:
+            page, frame, done = apply_edits(pub, spec["log_no"], spec, images)
+            for line in done:
+                print(" -", line)
+            missing = [d for d in done if d.startswith(("못 찾음", "그림 파일 없음", "그림 넣을 자리"))]
+            shot = pub._shot(page, "edit")
+            if dry_run:
+                print(f"시험 끝 — 발행 안 눌렀어요. 화면 사진: {shot}")
+                return 0
+            if missing:
+                print("못 한 게 있어서 발행 안 했어요. 위 목록을 보내 주세요.")
+                return 1
+            ok = publish_edit(pub, page, frame, spec["log_no"])
+        if not ok:
+            notify("글 수정 확인 필요", f"{spec.get('name', spec['id'])} — 발행 뒤 화면을 못 봤어요. 블로그를 확인해 주세요.")
+            print("발행은 눌렀는데 결과 화면을 못 봤어요. 블로그에서 확인해 주세요.")
+            return 1
+        done_ids[spec["id"]] = now_str(datetime.now())
+        state_file.save(state)
+        notify("글 수정했어요", spec.get("name", spec["id"]))
+        print("✅ 수정 발행 끝")
+        return 0
+    finally:
+        lock.release()
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(description="네이버 블로그 자동 올리기")
     ap.add_argument("--config", type=Path, default=APP_HOME / "config.json")
@@ -466,6 +521,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     r.add_argument("--post", help="이 글 하나만 (예: _blog/posts/2026-10-09-120000.md)")
     sub.add_parser("status", help="글별 상태")
     sub.add_parser("stats", help="통계·애드포스트 화면 저장")
+    e = sub.add_parser("edit", help="이미 올린 글 고치기")
+    e.add_argument("--dry-run", action="store_true", help="고친 화면 사진만 찍고 발행 안 함")
     args = ap.parse_args(argv)
     setup_logging(args.verbose)
 
@@ -506,6 +563,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                         feed=feed)
         if args.cmd == "stats":
             return 0 if run_stats(cfg, state_file, force=True) else 1
+        if args.cmd == "edit":
+            return run_edit(cfg, state_file, publisher_factory, notify, dry_run=args.dry_run)
         events = runner.run(dry_run=args.dry_run, only_path=args.post)
         log.info("끝: %s", ", ".join(events) or "올릴 글 없음")
         if cfg["stats_daily"] and "neo" in cfg["sources"] and not args.dry_run and "locked" not in events:
