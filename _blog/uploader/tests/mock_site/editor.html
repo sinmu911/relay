@@ -25,6 +25,14 @@
 <script>
 const Q = new URLSearchParams(location.search);
 let category = '', tags = [];
+// 진짜 네이버처럼: 에디터는 마우스·키보드로 움직인 자기 커서만 믿는다(스크립트로 잡은 선택은 무시)
+if (Q.get('owncaret') === '1') {
+  let saved = null;
+  const keep = () => { const s = getSelection(); if (s.rangeCount) saved = s.getRangeAt(0).cloneRange(); };
+  for (const ev of ['mouseup', 'keyup']) document.addEventListener(ev, e => { if (e.isTrusted) keep(); }, true);
+  document.addEventListener('beforeinput', () => { if (saved) { const s = getSelection(); s.removeAllRanges(); s.addRange(saved); } }, true);
+  document.addEventListener('input', keep, true);
+}
 // 진짜 네이버처럼: 스크립트로 잡은 선택에서 지우기 키가 안 먹음
 if (Q.get('nodelete') === '1') document.getElementById('doc').addEventListener('keydown', e => {
   if (e.key === 'Backspace' || e.key === 'Delete') e.preventDefault(); }, true);

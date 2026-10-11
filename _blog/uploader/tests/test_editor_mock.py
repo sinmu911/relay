@@ -203,7 +203,7 @@ def test_apply_edits_replaces_text_without_publishing(base_url, tmp_path):
     with publisher(tmp_path, f"{base_url}/editor.html?notrail=1") as pub:
         assert pub.publish(post, {}, lambda: None, dry_run=True) is None
     # 모의 화면은 새로 열면 비어 있으니 같은 화면에 글을 채운 뒤 고치기를 시험한다
-    with publisher(tmp_path, f"{base_url}/editor.html") as pub:
+    with publisher(tmp_path, f"{base_url}/editor.html?owncaret=1") as pub:
         page = pub._ctx.new_page()
         frame = pub._open_editor(page)
         pub._dismiss_popups(frame)
@@ -227,7 +227,7 @@ def test_apply_edits_deletes_without_backspace_and_checks_result(base_url, tmp_p
     """지우기는 옆 글자째 선택해 그 글자로 덮어쓴다. 바꾼 결과가 예상과 다르면 '안 바뀜'(발행 막음)."""
     from naver_editor import apply_edits
     post = parse_post("p.md", "---\ntitle: t\nstatus: ready\n---\n**가족탕** 요금 **1,200엔**\n\n끝 인사")
-    with publisher(tmp_path, f"{base_url}/editor.html?nodelete=1") as pub:
+    with publisher(tmp_path, f"{base_url}/editor.html?nodelete=1&owncaret=1") as pub:
         page = pub._ctx.new_page()
         frame = pub._open_editor(page)
         pub._dismiss_popups(frame)
@@ -259,3 +259,19 @@ def test_apply_edits_reports_when_text_does_not_change(base_url, tmp_path):
         _, _, done = apply_edits(pub, "1", {"replace": [{"old": "1,200엔", "new": "1,300엔"}]}, {},
                                  edit_url=f"{base_url}/editor.html")
     assert done[0].startswith("안 바뀜")
+
+
+def test_mock_owncaret_ignores_script_selection_like_naver(base_url, tmp_path):
+    """모의 에디터가 진짜 네이버처럼 스크립트 선택을 무시하는지(위 시험들이 의미 있으려면)."""
+    with publisher(tmp_path, f"{base_url}/editor.html?owncaret=1") as pub:
+        page = pub._ctx.new_page()
+        frame = pub._open_editor(page)
+        pub._dismiss_popups(frame)
+        frame.locator(".se-component.se-text .se-text-paragraph").last.click()
+        page.keyboard.insert_text("요금 1,200엔 끝")
+        frame.evaluate("""() => { const p = document.querySelector('.se-component.se-text .se-text-paragraph');
+            const n = p.firstChild, i = n.nodeValue.indexOf('1,200엔'); const r = document.createRange();
+            r.setStart(n, i); r.setEnd(n, i + 6); getSelection().removeAllRanges(); getSelection().addRange(r); }""")
+        page.keyboard.insert_text("1,300엔")
+        text = frame.locator("#doc").inner_text()
+    assert "1,200엔" in text and "1,300엔" in text     # 옛 방식이면 안 바뀌고 엉뚱한 데 들어감

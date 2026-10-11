@@ -520,9 +520,10 @@ def interactive_login(profile_dir: Path, login_url: str = LOGIN_URL, wait_second
 
 # ── 이미 올린 글 고치기(수정 화면) ─────────────────────────────────────
 # 수정 화면엔 [저장]이 없다(임시저장 불가). 사장님 결정(10-11): 시험(edit-test)으로 화면 확인 → edit 로 프로그램이 [발행]까지.
-# 찾은 글자를 선택한다. pad=True(지우기)면 옆 글자 하나를 같이 선택해 그 글자로 덮어쓴다 —
-# 진짜 네이버 에디터는 스크립트로 잡은 선택에서 Backspace 가 안 먹어서(10-11 시험: '**' 200번 그대로).
-SELECT_TEXT_JS = """([oldText, pad]) => {
+# 찾은 글자의 첫 글자 위치(화면 좌표)를 알려 준다. 선택은 진짜 마우스 클릭 + Shift+→ 로 한다 —
+# 네이버 에디터는 스크립트로 잡은 선택을 무시하고 자기 커서 자리에 글을 넣어서(10-11 시험 두 번 확인).
+# pad=True(지우기)면 옆 글자 하나까지 잡아 그 글자로 덮어쓴다(지우기 키도 안 먹어서).
+FIND_TEXT_JS = """([oldText, pad]) => {
   const root = document.querySelector('.se-components-wrap') || document.body;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
@@ -535,12 +536,14 @@ SELECT_TEXT_JS = """([oldText, pad]) => {
       else return {ok: true, extra: '', side: 'none'};
     }
     node.parentElement.scrollIntoView({block: 'center'});
-    const r = document.createRange(); r.setStart(node, start); r.setEnd(node, end);
-    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
-    return {ok: true, extra, side};
+    const r = document.createRange(); r.setStart(node, start); r.setEnd(node, start + 1);
+    const box = r.getClientRects()[0] || r.getBoundingClientRect();
+    return {ok: true, extra, side, n: end - start, want: v.slice(start, end),
+            x: box.left + 1, y: box.top + box.height / 2};
   }
   return {ok: false};
 }"""
+SELECTION_JS = "() => window.getSelection().toString()"
 # 본문 글자 수·찾는 글자 개수 — 바꾼 뒤 '딱 예상만큼' 바뀌었는지 확인용(에디터가 넣는 보이지 않는 글자는 뺌)
 TEXT_STATS_JS = """(oldText) => {
   const root = document.querySelector('.se-components-wrap') || document.body;
@@ -566,6 +569,22 @@ CARET_AFTER_JS = """(anchor) => {
 EDIT_URL = "https://blog.naver.com/PostUpdateForm.naver?blogId={blog_id}&logNo={log_no}"
 
 
+def _select_like_person(page: Page, frame: Frame, sel: dict) -> bool:
+    """찾은 글자 앞을 마우스로 누르고 Shift+→ 로 글자 수만큼 잡는다. 잡힌 글자가 정확히 맞을 때만 True."""
+    ox = oy = 0.0
+    if frame.parent_frame is not None:
+        box = frame.frame_element().bounding_box()
+        if not box:
+            return False
+        ox, oy = box["x"], box["y"]
+    page.mouse.click(ox + sel["x"], oy + sel["y"])
+    page.wait_for_timeout(100)
+    for _ in range(sel["n"]):
+        page.keyboard.press("Shift+ArrowRight")
+    page.wait_for_timeout(100)
+    return frame.evaluate(SELECTION_JS) == sel["want"]
+
+
 def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str, Path],
                 edit_url: str = EDIT_URL):
     """수정 화면을 열고 spec 대로 고친다. [발행]은 누르지 않는다. 돌려주는 값: (화면, 편집틀, 한 일 목록)."""
@@ -579,7 +598,7 @@ def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str
         pub.write_url = old_url
     page = frame.page
     pub._dismiss_popups(frame)
-    # 글자 바꾸기: 찾은 곳을 선택한 뒤 진짜 키보드 입력으로 덮어쓴다(에디터가 바뀐 걸 확실히 알게).
+    # 글자 바꾸기: 찾은 곳을 사람처럼(마우스+Shift+→) 잡은 뒤 키보드 입력으로 덮어쓴다.
     # 한 번 바꿀 때마다 본문 글자 수가 딱 예상만큼 변했는지 본다 — 다르면 멈추고 '안 바뀜'(발행 안 함).
     for item in spec.get("replace", []):
         old, new = item["old"], item.get("new", "")
@@ -588,12 +607,15 @@ def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str
             before_len, before_cnt = frame.evaluate(TEXT_STATS_JS, old)
             if not before_cnt:
                 break
-            sel = frame.evaluate(SELECT_TEXT_JS, [old, not new])
+            sel = frame.evaluate(FIND_TEXT_JS, [old, not new])
             if not sel.get("ok"):
                 break
             typed = sel["extra"] + new if sel.get("side") == "before" else new + sel.get("extra", "")
             if not typed:
                 problem = "지울 자리 옆에 글자가 없어 못 지움"
+                break
+            if not _select_like_person(page, frame, sel):
+                problem = f"선택이 안 맞음(잡힌 글자: {frame.evaluate(SELECTION_JS)[:20]!r})"
                 break
             page.keyboard.insert_text(typed)
             page.wait_for_timeout(150)
