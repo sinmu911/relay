@@ -522,23 +522,18 @@ def interactive_login(profile_dir: Path, login_url: str = LOGIN_URL, wait_second
 # 수정 화면엔 [저장]이 없다(임시저장 불가). 사장님 결정(10-11): 시험(edit-test)으로 화면 확인 → edit 로 프로그램이 [발행]까지.
 # 찾은 글자의 첫 글자 위치(화면 좌표)를 알려 준다. 선택은 진짜 마우스 클릭 + Shift+→ 로 한다 —
 # 네이버 에디터는 스크립트로 잡은 선택을 무시하고 자기 커서 자리에 글을 넣어서(10-11 시험 두 번 확인).
-# pad=True(지우기)면 옆 글자 하나까지 잡아 그 글자로 덮어쓴다(지우기 키도 안 먹어서).
-FIND_TEXT_JS = """([oldText, pad]) => {
+FIND_TEXT_JS = """(oldText) => {
   const root = document.querySelector('.se-components-wrap') || document.body;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
-    const node = walker.currentNode, v = node.nodeValue, idx = v.indexOf(oldText);
-    if (idx < 0) continue;
-    let start = idx, end = idx + oldText.length, extra = '', side = '';
-    if (pad) {
-      if (end < v.length) { extra = v[end]; end += 1; side = 'after'; }
-      else if (start > 0) { extra = v[start - 1]; start -= 1; side = 'before'; }
-      else return {ok: true, extra: '', side: 'none'};
-    }
+    const node = walker.currentNode, v = node.nodeValue, start = v.indexOf(oldText);
+    if (start < 0) continue;
+    const end = start + oldText.length;
     node.parentElement.scrollIntoView({block: 'center'});
     const r = document.createRange(); r.setStart(node, start); r.setEnd(node, start + 1);
     const box = r.getClientRects()[0] || r.getBoundingClientRect();
-    return {ok: true, extra, side, n: end - start, want: v.slice(start, end),
+    return {ok: true, n: end - start, want: oldText,
+            ctx: v.slice(Math.max(0, start - 6), end + 6),
             x: box.left + 1, y: box.top + box.height / 2};
   }
   return {ok: false};
@@ -610,21 +605,22 @@ def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str
             before_len, before_cnt = frame.evaluate(TEXT_STATS_JS, old)
             if not before_cnt:
                 break
-            sel = frame.evaluate(FIND_TEXT_JS, [old, not new])
+            # 진짜 마우스·키보드로 잡으면 지우기 키도 먹는다(10-11 시험: 덮어쓰기로 지우면 어긋남)
+            sel = frame.evaluate(FIND_TEXT_JS, old)
             if not sel.get("ok"):
-                break
-            typed = sel["extra"] + new if sel.get("side") == "before" else new + sel.get("extra", "")
-            if not typed:
-                problem = "지울 자리 옆에 글자가 없어 못 지움"
                 break
             if not _select_like_person(page, frame, sel):
                 problem = f"선택이 안 맞음(잡힌 글자: {frame.evaluate(SELECTION_JS)[:20]!r})"
                 break
-            page.keyboard.insert_text(typed)
+            if new:
+                page.keyboard.insert_text(new)
+            else:
+                page.keyboard.press("Backspace")
             page.wait_for_timeout(150)
             after_len, after_cnt = frame.evaluate(TEXT_STATS_JS, old)
             if after_len != before_len + len(new) - len(old) or (old not in new and after_cnt >= before_cnt):
-                problem = f"예상과 다르게 바뀜(글자 수 {before_len}→{after_len}, 남은 개수 {after_cnt})"
+                problem = (f"예상과 다르게 바뀜(글자 수 {before_len}→{after_len}, 남은 개수 {after_cnt}, "
+                           f"자리: {sel.get('ctx', '')!r})")
                 break
             n += 1
         if problem:

@@ -224,10 +224,10 @@ def test_apply_edits_replaces_text_without_publishing(base_url, tmp_path):
 
 
 def test_apply_edits_deletes_without_backspace_and_checks_result(base_url, tmp_path):
-    """지우기는 옆 글자째 선택해 그 글자로 덮어쓴다. 바꾼 결과가 예상과 다르면 '안 바뀜'(발행 막음)."""
+    """지우기는 진짜 선택 + 지우기 키. 바꾼 결과가 예상과 다르면 '안 바뀜'(발행 막음)."""
     from naver_editor import apply_edits
     post = parse_post("p.md", "---\ntitle: t\nstatus: ready\n---\n**가족탕** 요금 **1,200엔**\n\n끝 인사")
-    with publisher(tmp_path, f"{base_url}/editor.html?nodelete=1&owncaret=1") as pub:
+    with publisher(tmp_path, f"{base_url}/editor.html?owncaret=1") as pub:
         page = pub._ctx.new_page()
         frame = pub._open_editor(page)
         pub._dismiss_popups(frame)
