@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+import blog_policy
 from blogpost import MAX_TAGS, STATUS_READY, Post, Segment, html_to_text, normalize_title
 from github_store import StoreError
 
@@ -268,6 +269,8 @@ class NeoStore:
                 missing = [n for n in post.image_paths if n not in names]
                 if missing:
                     post.errors.append("그림 파일이 없어요: " + ", ".join(missing))
+        # 규칙서 정책 관문(NEO·네이버·AEO·SEO) — 걸리면 임시저장하지 않고 '글 형식 오류' 알림
+        post.errors.extend(blog_policy.check(post.title, post.body, post.tags, p, self.root / "상태"))
         return post
 
     def _image_dir(self, md: Path, entry: dict, preamble: str) -> Optional[Path]:

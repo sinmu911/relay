@@ -68,6 +68,7 @@ def make_neo(tmp_path, posts=None, month="2026년 10월", text=WANSEONG, images=
         posts = [{"id": "①", "md": "초안/2026-10-14_테스트코스_완성본.md", "when": "10/14(화) 20:22", "kind": "new"}]
     (root / "상태" / "자동발행_대기.json").write_text(json.dumps({"month": month, "posts": posts}, ensure_ascii=False),
                                                  encoding="utf-8")
+    (root / "상태" / "검문소_2026-10-14_테스트코스_완성본.json").write_text('{"걸림": 0, "주의": 1}', encoding="utf-8")
     return root
 
 
@@ -260,3 +261,28 @@ def test_ai_note_line_dropped():
     segs = build_segments("본문 한 줄\n\n직접 다녀온 기록을 AI 도움으로 정리했고, 그림은 AI로 만든 설명 일러스트입니다.\n\n끝 인사", errs)
     text = " ".join(s.text for s in segs)
     assert "AI" not in text and "본문 한 줄" in text and "끝 인사" in text and not errs
+
+
+def test_policy_gate_blocks_rule_breaking_post(tmp_path):
+    """규칙서 정책(NEO 금지 표현·빈칸, AEO 질문 수, SEO 태그·파랑, 검문소 걸림)에 걸리면 올리지 않는다."""
+    bad = (WANSEONG.replace("렌트카로 도는 하루 코스", "렌트카 총정리")
+           .replace("#달리는이기사", "#여행")
+           .replace("■ 하루 순서", "[확인 필요]\n\n■ 자주 묻는 질문\n\n1. 가요?\n2. 와요?\n3. 돼요?\n4. 싸요?\n\n■ 하루 순서"))
+    root = make_neo(tmp_path, text=bad)
+    (root / "상태" / "검문소_2026-10-14_테스트코스_완성본.json").write_text('{"걸림": 2}', encoding="utf-8")
+    _, _, post = load_one(root)
+    joined = " / ".join(post.errors)
+    for want in ("금지 표현", "총정리", "빈칸", "자주 묻는 질문은 3개까지", "#달리는이기사", "검문소 걸림 2"):
+        assert want in joined, want
+
+
+def test_policy_gate_needs_checkpoint(tmp_path):
+    root = make_neo(tmp_path)
+    (root / "상태" / "검문소_2026-10-14_테스트코스_완성본.json").unlink()
+    _, _, post = load_one(root)
+    assert any("검문소를 안 거친" in e for e in post.errors)
+
+
+def test_policy_gate_passes_clean_post(tmp_path):
+    _, _, post = load_one(make_neo(tmp_path))
+    assert post.errors == []
