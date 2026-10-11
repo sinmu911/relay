@@ -20,7 +20,9 @@ PAGES: List[Tuple[str, str]] = [
     ("애드포스트", "https://adpost.naver.com/main"),                            # 회원 첫 화면(수입 요약)
     ("애드포스트수입보고서", "https://adpost.naver.com/report/revenue"),           # 노출·클릭·수입
     ("월간조회수순위", "https://blog.stat.naver.com/blog/rank/cv/content?blogId={blog_id}&term=MONTH"),
-    ("글찾기_묘반", "https://blog.naver.com/PostSearchList.naver?blogId={blog_id}&orderType=sim&searchText=%EB%AC%98%EB%B0%98"),
+    # 벳부 묘반 글(2026-04-05) 2026년판 수정 준비: 본문 읽기 + 수정 화면에 [저장]이 있는지 보기(아무것도 안 바꿈)
+    ("벳부묘반_본문", "https://blog.naver.com/PostView.naver?blogId={blog_id}&logNo=224241636486"),
+    ("벳부묘반_수정화면", "https://blog.naver.com/PostUpdateForm.naver?blogId={blog_id}&logNo=224241636486"),
 ]
 LINKS_JS = """() => [...document.querySelectorAll('a[href]')].map(a => [a.innerText.trim().slice(0, 40), a.href])
   .filter(([t, h]) => h.startsWith('http')).slice(0, 300)"""
