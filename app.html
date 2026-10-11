@@ -19,12 +19,38 @@ function linkStop(code) {
   document.body.innerHTML = '<main style="max-width:360px;margin:0 auto;padding:64px 16px;text-align:center;font-family:system-ui,sans-serif"><img src="icon-192.png" style="width:72px;height:72px;border-radius:18px" alt=""><h1 style="font-size:18px;margin:14px 0 8px">중계현황</h1><p style="font-size:14px;line-height:1.7;color:#5B6776">' + msg + '</p></main>';
   if (code === 'REVOKED' || code === 'NO_LINK') { try { localStorage.removeItem('lt'); } catch (e) {} }
 }
-async function dashData() {
+// CHG-317 (10-10): 관리자 본인 링크는 테일스케일로 Mac 에 닿으면 Mac 사본을 먼저 받는다(1.2초 안에 안 오면 지금처럼 구글 길, 5분 동안 Mac 을 다시 두드리지 않음).
+//  Mac 주소는 구글 길 응답이 관리자 본인 링크에만 알려 준다(직원 링크에는 없음). 10분에 한 번은 구글 길로도 확인한다(링크가 끊겼는지).
+const MACK = 'mac_v1';
+function macGet() { try { const m = JSON.parse(localStorage.getItem(MACK) || 'null'); return (m && /^https:\/\/[a-z0-9-]+\.[a-z0-9-]+\.ts\.net\/relay\/data$/.test(m.u || '')) ? m : null; } catch (e) { return null; } }
+function macSet(o) { try { o ? localStorage.setItem(MACK, JSON.stringify(o)) : localStorage.removeItem(MACK); } catch (e) {} }
+async function macData(url, ms) {
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms);
+  try { const r = await fetch(url, {cache: 'no-store', signal: c.signal}); if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json(); if (!j || !j.ok || !j.data || !Array.isArray(j.data.rows)) throw new Error('BAD'); return j.data;
+  } finally { clearTimeout(t); }
+}
+async function googleData() {
   const r = await fetch(RELAY + '?action=dash_data&t=' + LT + '&d=' + DEV, {cache: 'no-store'});
   const j = await r.json();
   if (!j.ok) { if (j.error === 'RATE') throw new Error('잠시 뒤 다시'); linkStop(j.error); throw new Error(j.error); }
   LINKUSER = {name: j.name, email: j.email};
+  const m = macGet();
+  if (j.data && j.data.mac) macSet({u: j.data.mac, x: (m && m.u === j.data.mac && m.x) || 0, g: Date.now(), n: j.name, e: j.email}); else macSet(null);
   return j.data;
+}
+async function dashData() {
+  const m = macGet();
+  if (m && !(Date.now() < (m.x || 0))) {
+    try {
+      const d = await macData(m.u, 1200);
+      d.isOwner = false; d.pending = 0; d.stale = false;
+      if (!LINKUSER) LINKUSER = {name: m.n, email: m.e};
+      if (!(Date.now() - (m.g || 0) < 600000)) googleData().catch(() => {});
+      return d;
+    } catch (e) { m.x = Date.now() + 300000; macSet(m); }
+  }
+  return googleData();
 }
 const DEF_SET = {on: true, sound: true, vibrate: true, types: {'연계불가': true, '연계빠듯': true, '기록확인': false, '위험': true, '지연': true, '미출발': true, '정차': true, '밀림서행': false}};
 const LOCAL = {
