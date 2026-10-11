@@ -25,6 +25,9 @@
 <script>
 const Q = new URLSearchParams(location.search);
 let category = '', tags = [];
+// 진짜 네이버처럼: 스크립트로 잡은 선택에서 지우기 키가 안 먹음
+if (Q.get('nodelete') === '1') document.getElementById('doc').addEventListener('keydown', e => {
+  if (e.key === 'Backspace' || e.key === 'Delete') e.preventDefault(); }, true);
 function pick(c){ category = c; document.querySelector('.option_list__y').classList.remove('on'); }
 document.getElementById('tag-input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.value.trim()) { tags.push(e.target.value.trim()); e.target.value = ''; }

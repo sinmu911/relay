@@ -221,3 +221,41 @@ def test_apply_edits_replaces_text_without_publishing(base_url, tmp_path):
     assert "새 제목 2026" in text and "1,300엔" in text and "1,200엔" not in text
     assert any(d.startswith("못 찾음") for d in done)
     assert Handler.submissions == []   # 발행 안 함
+
+
+def test_apply_edits_deletes_without_backspace_and_checks_result(base_url, tmp_path):
+    """지우기는 옆 글자째 선택해 그 글자로 덮어쓴다. 바꾼 결과가 예상과 다르면 '안 바뀜'(발행 막음)."""
+    from naver_editor import apply_edits
+    post = parse_post("p.md", "---\ntitle: t\nstatus: ready\n---\n**가족탕** 요금 **1,200엔**\n\n끝 인사")
+    with publisher(tmp_path, f"{base_url}/editor.html?nodelete=1") as pub:
+        page = pub._ctx.new_page()
+        frame = pub._open_editor(page)
+        pub._dismiss_popups(frame)
+        pub._fill_title(frame, "제목")
+        page.keyboard.press("Tab")
+        frame.locator(".se-component.se-text .se-text-paragraph").last.click()
+        page.keyboard.insert_text("**가족탕** 요금 **1,200엔** 끝")
+        orig = pub._open_editor
+        pub._open_editor = lambda _p: frame
+        spec = {"replace": [{"old": "**", "new": "", "all": True}, {"old": "요금", "new": "가격"}]}
+        _, _, done = apply_edits(pub, "1", spec, {}, edit_url=f"{base_url}/editor.html")
+        pub._open_editor = orig
+        text = frame.locator("#doc").inner_text()
+    assert "**" not in text and "가족탕 가격 1,200엔 끝" in text
+    assert done[0].startswith("바꿈 4곳") and done[1].startswith("바꿈 1곳")
+
+
+def test_apply_edits_reports_when_text_does_not_change(base_url, tmp_path):
+    from naver_editor import apply_edits
+    with publisher(tmp_path, f"{base_url}/editor.html") as pub:
+        page = pub._ctx.new_page()
+        frame = pub._open_editor(page)
+        pub._dismiss_popups(frame)
+        frame.locator(".se-component.se-text .se-text-paragraph").last.click()
+        page.keyboard.insert_text("요금 1,200엔")
+        frame.evaluate("""() => document.getElementById('doc').addEventListener('beforeinput',
+                          e => e.preventDefault(), true)""")   # 입력을 에디터가 무시하는 경우
+        pub._open_editor = lambda _p: frame
+        _, _, done = apply_edits(pub, "1", {"replace": [{"old": "1,200엔", "new": "1,300엔"}]}, {},
+                                 edit_url=f"{base_url}/editor.html")
+    assert done[0].startswith("안 바뀜")

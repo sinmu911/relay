@@ -520,19 +520,38 @@ def interactive_login(profile_dir: Path, login_url: str = LOGIN_URL, wait_second
 
 # ── 이미 올린 글 고치기(수정 화면) ─────────────────────────────────────
 # 수정 화면엔 [저장]이 없다(임시저장 불가). 사장님 결정(10-11): 시험(edit-test)으로 화면 확인 → edit 로 프로그램이 [발행]까지.
-SELECT_TEXT_JS = """(oldText) => {
+# 찾은 글자를 선택한다. pad=True(지우기)면 옆 글자 하나를 같이 선택해 그 글자로 덮어쓴다 —
+# 진짜 네이버 에디터는 스크립트로 잡은 선택에서 Backspace 가 안 먹어서(10-11 시험: '**' 200번 그대로).
+SELECT_TEXT_JS = """([oldText, pad]) => {
   const root = document.querySelector('.se-components-wrap') || document.body;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
-    const node = walker.currentNode, idx = node.nodeValue.indexOf(oldText);
-    if (idx >= 0) {
-      node.parentElement.scrollIntoView({block: 'center'});
-      const r = document.createRange(); r.setStart(node, idx); r.setEnd(node, idx + oldText.length);
-      const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
-      return true;
+    const node = walker.currentNode, v = node.nodeValue, idx = v.indexOf(oldText);
+    if (idx < 0) continue;
+    let start = idx, end = idx + oldText.length, extra = '', side = '';
+    if (pad) {
+      if (end < v.length) { extra = v[end]; end += 1; side = 'after'; }
+      else if (start > 0) { extra = v[start - 1]; start -= 1; side = 'before'; }
+      else return {ok: true, extra: '', side: 'none'};
     }
+    node.parentElement.scrollIntoView({block: 'center'});
+    const r = document.createRange(); r.setStart(node, start); r.setEnd(node, end);
+    const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+    return {ok: true, extra, side};
   }
-  return false;
+  return {ok: false};
+}"""
+# 본문 글자 수·찾는 글자 개수 — 바꾼 뒤 '딱 예상만큼' 바뀌었는지 확인용(에디터가 넣는 보이지 않는 글자는 뺌)
+TEXT_STATS_JS = """(oldText) => {
+  const root = document.querySelector('.se-components-wrap') || document.body;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let len = 0, count = 0;
+  while (walker.nextNode()) {
+    const v = walker.currentNode.nodeValue.replace(/[\u200b\ufeff]/g, '');
+    len += v.length;
+    for (let i = v.indexOf(oldText); i >= 0; i = v.indexOf(oldText, i + oldText.length)) count++;
+  }
+  return [len, count];
 }"""
 CARET_AFTER_JS = """(anchor) => {
   const paras = [...document.querySelectorAll('.se-component.se-text .se-text-paragraph')];
@@ -559,18 +578,33 @@ def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str
         pub.write_url = old_url
     page = frame.page
     pub._dismiss_popups(frame)
-    # 글자 바꾸기: 찾은 곳을 선택한 뒤 진짜 키보드 입력으로 덮어쓴다(에디터가 바뀐 걸 확실히 알게)
+    # 글자 바꾸기: 찾은 곳을 선택한 뒤 진짜 키보드 입력으로 덮어쓴다(에디터가 바뀐 걸 확실히 알게).
+    # 한 번 바꿀 때마다 본문 글자 수가 딱 예상만큼 변했는지 본다 — 다르면 멈추고 '안 바뀜'(발행 안 함).
     for item in spec.get("replace", []):
         old, new = item["old"], item.get("new", "")
-        n = 0
-        while n < (200 if item.get("all") else 1) and frame.evaluate(SELECT_TEXT_JS, old):
-            if new:
-                page.keyboard.insert_text(new)
-            else:
-                page.keyboard.press("Backspace")
-            n += 1
+        n, problem = 0, ""
+        while n < (200 if item.get("all") else 1):
+            before_len, before_cnt = frame.evaluate(TEXT_STATS_JS, old)
+            if not before_cnt:
+                break
+            sel = frame.evaluate(SELECT_TEXT_JS, [old, not new])
+            if not sel.get("ok"):
+                break
+            typed = sel["extra"] + new if sel.get("side") == "before" else new + sel.get("extra", "")
+            if not typed:
+                problem = "지울 자리 옆에 글자가 없어 못 지움"
+                break
+            page.keyboard.insert_text(typed)
             page.wait_for_timeout(150)
-        done.append(f"바꿈 {n}곳: {old[:20]!r} → {new[:20]!r}" if n else f"못 찾음: {old[:30]!r}")
+            after_len, after_cnt = frame.evaluate(TEXT_STATS_JS, old)
+            if after_len != before_len + len(new) - len(old) or (old not in new and after_cnt >= before_cnt):
+                problem = f"예상과 다르게 바뀜(글자 수 {before_len}→{after_len}, 남은 개수 {after_cnt})"
+                break
+            n += 1
+        if problem:
+            done.append(f"안 바뀜: {old[:20]!r} — {problem} ({n}곳은 바꿈)")
+        else:
+            done.append(f"바꿈 {n}곳: {old[:20]!r} → {new[:20]!r}" if n else f"못 찾음: {old[:30]!r}")
     for item in spec.get("insert_images", []):
         path = images.get(item["file"])
         if not path:
