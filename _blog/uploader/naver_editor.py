@@ -543,6 +543,35 @@ FIND_TEXT_JS = """(oldText) => {
 }"""
 SELECTION_JS = "() => window.getSelection().toString()"
 PROBE_JS = "() => { const p = document.querySelector('[data-edit-probe]'); return p ? p.innerText : '(문단 없어짐)'; }"
+# 문서 전체 글자(보이지 않는 글자 뺌) — 예상 밖 변화가 어디서 났는지 앞뒤 글자로 보여 주려고
+DOC_TEXT_JS = """() => {
+  const root = document.querySelector('.se-components-wrap') || document.body;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const hidden = new RegExp('[' + String.fromCharCode(0x200b, 0xfeff) + ']', 'g');
+  const out = [];
+  while (walker.nextNode()) out.push(walker.currentNode.nodeValue.replace(hidden, ''));
+  return out.join('');
+}"""
+
+
+def _expected_doc(doc: str, ctx: str, old: str, new: str) -> str:
+    """바꾸려던 자리(ctx 안의 old)만 바꾼 문서 — 실제와 비교하면 '예상 밖' 변화만 남는다."""
+    at = doc.find(ctx)
+    k = at + ctx.find(old) if at >= 0 else doc.find(old)
+    return doc[:k] + new + doc[k + len(old):] if k >= 0 else doc
+
+
+def _diff_note(a: str, b: str, pad: int = 15) -> str:
+    """두 글에서 처음 달라진 곳부터 끝에서 같아지는 곳까지를 앞뒤 글자와 함께."""
+    i = 0
+    while i < min(len(a), len(b)) and a[i] == b[i]:
+        i += 1
+    j = 0
+    while j < min(len(a), len(b)) - i and a[len(a) - 1 - j] == b[len(b) - 1 - j]:
+        j += 1
+    if a == b:
+        return "(없음)"
+    return (f"전 {a[max(0, i - pad):len(a) - j + pad][:200]!r} → 후 {b[max(0, i - pad):len(b) - j + pad][:200]!r}")
 # 본문 글자 수·찾는 글자 개수 — 바꾼 뒤 '딱 예상만큼' 바뀌었는지 확인용(에디터가 넣는 보이지 않는 글자는 뺌)
 TEXT_STATS_JS = """(oldText) => {
   const root = document.querySelector('.se-components-wrap') || document.body;
@@ -609,6 +638,7 @@ def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str
             before_len, before_cnt = frame.evaluate(TEXT_STATS_JS, old)
             if not before_cnt:
                 break
+            before_doc = frame.evaluate(DOC_TEXT_JS)
             # 진짜 마우스·키보드로 잡으면 지우기 키도 먹는다(10-11 시험: 덮어쓰기로 지우면 어긋남)
             sel = frame.evaluate(FIND_TEXT_JS, old)
             if not sel.get("ok"):
@@ -624,8 +654,9 @@ def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str
             after_len, after_cnt = frame.evaluate(TEXT_STATS_JS, old)
             if after_len != before_len + len(new) - len(old) or (old not in new and after_cnt >= before_cnt):
                 problem = (f"예상과 다르게 바뀜(글자 수 {before_len}→{after_len}, 남은 개수 {after_cnt}, "
-                           f"자리: {sel.get('ctx', '')!r})\n     문단 전: {sel.get('para', '')[:120]!r}"
-                           f"\n     문단 후: {frame.evaluate(PROBE_JS)[:120]!r}")
+                           f"자리: {sel.get('ctx', '')!r})\n     예상 밖으로 바뀐 곳: "
+                           + _diff_note(_expected_doc(before_doc, sel.get('ctx', ''), old, new),
+                                        frame.evaluate(DOC_TEXT_JS)))
                 break
             if item.get("join_prev") and not new:
                 # 문단 글을 다 지운 뒤 남은 빈 줄을 없애 윗줄에 붙인다. 글자 수는 그대로여야 함(빈 줄만 없어짐).

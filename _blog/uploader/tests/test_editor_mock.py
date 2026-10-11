@@ -290,3 +290,13 @@ def test_join_prev_stops_if_extra_backspace_eats_text(base_url, tmp_path):
         _, _, done = apply_edits(pub, "1", {"replace": [{"old": "지울말", "new": "", "join_prev": True}]}, {},
                                  edit_url=f"{base_url}/editor.html")
     assert done[0].startswith("안 바뀜") and "빈 줄" in done[0]
+
+
+def test_diff_note_shows_only_unexpected_change():
+    from naver_editor import _diff_note, _expected_doc
+    before = "앞 글 **진한** 뒤 글 끝"
+    after_ok = "앞 글 진한** 뒤 글 끝"
+    after_bad = "앞 글 진한** 뒤 글 엉뚱 끝"
+    exp = _expected_doc(before, "앞 글 **진한", "**", "")
+    assert _diff_note(exp, after_ok) == "(없음)"
+    assert "엉뚱" in _diff_note(exp, after_bad) and "**진한" not in _diff_note(exp, after_bad)
