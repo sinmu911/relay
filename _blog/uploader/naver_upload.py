@@ -459,53 +459,100 @@ def run_stats(cfg: dict, state_file: StateFile, force: bool = False, now_fn=date
 EDIT_SPEC_REL = Path("상태") / "글수정_대기.json"
 
 
+EDIT_MISSING = ("못 찾음", "안 바뀜", "그림 파일 없음", "그림 넣을 자리")
+
+
+def load_edit_specs(path: Path) -> List[dict]:
+    """글수정_대기.json — 글 하나({"id", "log_no", "replace", ...}) 또는 여러 개({"edits": [ ... ]})."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    specs = data.get("edits") if isinstance(data, dict) and "edits" in data else [data]
+    if not isinstance(specs, list):
+        raise ValueError("edits 는 목록이어야 해요")
+    for spec in specs:
+        if not isinstance(spec, dict) or not spec.get("id") or not re.fullmatch(r"\d{6,}", str(spec.get("log_no", ""))):
+            raise ValueError(f"id·log_no 가 없거나 이상해요: {str(spec)[:80]}")
+    ids = [spec["id"] for spec in specs]
+    if len(ids) != len(set(ids)):
+        raise ValueError("같은 id 가 두 번 있어요")
+    return specs
+
+
 def run_edit(cfg: dict, state_file: StateFile, publisher_factory, notify, dry_run: bool = False) -> int:
-    """글수정_대기.json 의 수정 하나를 한다. 같은 id 는 한 번만(기록은 state meta.edits_done)."""
-    from naver_editor import apply_edits, publish_edit
+    """글수정_대기.json 의 글들을 차례로 고친다. 같은 id 는 한 번만(기록은 state meta.edits_done).
+    한 글이 어긋나면 그 글만 발행하지 않고 다음 글로 넘어간다."""
+    from naver_editor import NotLoggedInError, apply_edits, publish_edit
     root = Path(os.path.expanduser(str(cfg["neo_root"])))
     spec_path = root / EDIT_SPEC_REL
     if not spec_path.exists():
         print(f"고칠 글 목록이 없어요: {spec_path}")
         return 1
-    spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    try:
+        specs = load_edit_specs(spec_path)
+    except (OSError, ValueError) as e:
+        print(f"고칠 글 목록을 못 읽어요: {e}")
+        return 1
     lock = RunLock(APP_HOME / "run.lock")
     if not lock.acquire():
         print("자동 실행이 돌고 있어요. 1~2분 뒤에 다시 해 주세요.")
         return 1
+    failed = 0
     try:
         state = state_file.load()
         done_ids = state.setdefault("meta", {}).setdefault("edits_done", {})
-        if spec["id"] in done_ids and not dry_run:
-            print(f"이미 고친 글이에요({done_ids[spec['id']]}). 다시 하려면 id 를 바꿔 주세요.")
+        todo = [spec for spec in specs if dry_run or spec["id"] not in done_ids]
+        for spec in specs:
+            if spec not in todo:
+                print(f"[{spec.get('name', spec['id'])}] 이미 고친 글이라 건너뜀({done_ids[spec['id']]})")
+        if not todo:
             return 0
-        images = {}
-        img_dir = root / spec.get("image_dir", "")
-        for item in spec.get("insert_images", []):
-            p = img_dir / item["file"]
-            if p.is_file():
-                images[item["file"]] = p
         with publisher_factory() as pub:
-            page, frame, done = apply_edits(pub, spec["log_no"], spec, images)
-            for line in done:
-                print(" -", line)
-            missing = [d for d in done if d.startswith(("못 찾음", "안 바뀜", "그림 파일 없음", "그림 넣을 자리"))]
-            shot = pub._shot(page, "edit")
-            if dry_run:
-                print(f"시험 끝 — 발행 안 눌렀어요. 화면 사진: {shot}")
-                return 0
-            if missing:
-                print("못 한 게 있어서 발행 안 했어요. 위 목록을 보내 주세요.")
-                return 1
-            ok = publish_edit(pub, page, frame, spec["log_no"])
-        if not ok:
-            notify("글 수정 확인 필요", f"{spec.get('name', spec['id'])} — 발행 뒤 화면을 못 봤어요. 블로그를 확인해 주세요.")
-            print("발행은 눌렀는데 결과 화면을 못 봤어요. 블로그에서 확인해 주세요.")
-            return 1
-        done_ids[spec["id"]] = now_str(datetime.now())
-        state_file.save(state)
-        notify("글 수정했어요", spec.get("name", spec["id"]))
-        print("✅ 수정 발행 끝")
-        return 0
+            for spec in todo:
+                name = spec.get("name", spec["id"])
+                print(f"[{name}]")
+                images = {}
+                img_dir = root / spec.get("image_dir", "")
+                for item in spec.get("insert_images", []):
+                    p = img_dir / item["file"]
+                    if p.is_file():
+                        images[item["file"]] = p
+                try:
+                    page, frame, done = apply_edits(pub, spec["log_no"], spec, images)
+                except NotLoggedInError:
+                    raise
+                except Exception as e:  # noqa: BLE001 — 이 글 화면이 안 열려도 다음 글은 계속
+                    print(f" 수정 화면에서 오류(발행 안 함): {str(e)[:150]}")
+                    failed += 1
+                    continue
+                try:
+                    for line in done:
+                        print(" -", line)
+                    shot = pub._shot(page, "edit")
+                    if dry_run:
+                        print(f" 시험 끝 — 발행 안 눌렀어요. 화면 사진: {shot}")
+                        if any(d.startswith(EDIT_MISSING) for d in done):
+                            failed += 1
+                        continue
+                    if any(d.startswith(EDIT_MISSING) for d in done):
+                        print(" 못 한 게 있어서 이 글은 발행 안 했어요. 위 줄을 보내 주세요.")
+                        failed += 1
+                        continue
+                    ok = publish_edit(pub, page, frame, spec["log_no"])
+                    # 결과 화면을 못 봤어도 '했음'으로 남긴다 — 다시 돌리면 같은 글자를 또 덧붙일 수 있어서
+                    done_ids[spec["id"]] = now_str(datetime.now()) + ("" if ok else " (발행 뒤 확인 못 함)")
+                    state_file.save(state)
+                    if ok:
+                        notify("글 수정했어요", name)
+                        print(" ✅ 수정 발행 끝")
+                    else:
+                        failed += 1
+                        notify("글 수정 확인 필요", f"{name} — 발행 뒤 화면을 못 봤어요. 블로그를 확인해 주세요.")
+                        print(" 발행은 눌렀는데 결과 화면을 못 봤어요. 블로그에서 확인해 주세요(다시 돌려도 이 글은 안 고침).")
+                finally:
+                    try:
+                        page.close()
+                    except Exception:  # noqa: BLE001 — 발행 뒤 화면이 이미 닫혔을 수 있음
+                        pass
+        return 1 if failed else 0
     finally:
         lock.release()
 
