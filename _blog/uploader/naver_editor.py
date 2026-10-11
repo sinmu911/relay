@@ -530,15 +530,19 @@ FIND_TEXT_JS = """(oldText) => {
     if (start < 0) continue;
     const end = start + oldText.length;
     node.parentElement.scrollIntoView({block: 'center'});
+    document.querySelectorAll('[data-edit-probe]').forEach(el => el.removeAttribute('data-edit-probe'));
+    const para = node.parentElement.closest('.se-text-paragraph') || node.parentElement;
+    para.setAttribute('data-edit-probe', '1');
     const r = document.createRange(); r.setStart(node, start); r.setEnd(node, start + 1);
     const box = r.getClientRects()[0] || r.getBoundingClientRect();
     return {ok: true, n: end - start, want: oldText,
-            ctx: v.slice(Math.max(0, start - 6), end + 6),
+            ctx: v.slice(Math.max(0, start - 6), end + 6), para: para.innerText,
             x: box.left + 1, y: box.top + box.height / 2};
   }
   return {ok: false};
 }"""
 SELECTION_JS = "() => window.getSelection().toString()"
+PROBE_JS = "() => { const p = document.querySelector('[data-edit-probe]'); return p ? p.innerText : '(문단 없어짐)'; }"
 # 본문 글자 수·찾는 글자 개수 — 바꾼 뒤 '딱 예상만큼' 바뀌었는지 확인용(에디터가 넣는 보이지 않는 글자는 뺌)
 TEXT_STATS_JS = """(oldText) => {
   const root = document.querySelector('.se-components-wrap') || document.body;
@@ -620,8 +624,16 @@ def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str
             after_len, after_cnt = frame.evaluate(TEXT_STATS_JS, old)
             if after_len != before_len + len(new) - len(old) or (old not in new and after_cnt >= before_cnt):
                 problem = (f"예상과 다르게 바뀜(글자 수 {before_len}→{after_len}, 남은 개수 {after_cnt}, "
-                           f"자리: {sel.get('ctx', '')!r})")
+                           f"자리: {sel.get('ctx', '')!r})\n     문단 전: {sel.get('para', '')[:120]!r}"
+                           f"\n     문단 후: {frame.evaluate(PROBE_JS)[:120]!r}")
                 break
+            if item.get("join_prev") and not new:
+                # 문단 글을 다 지운 뒤 남은 빈 줄을 없애 윗줄에 붙인다. 글자 수는 그대로여야 함(빈 줄만 없어짐).
+                page.keyboard.press("Backspace")
+                page.wait_for_timeout(150)
+                if frame.evaluate(TEXT_STATS_JS, old)[0] != after_len:
+                    problem = "빈 줄 없애기에서 글자가 같이 지워짐"
+                    break
             n += 1
         if problem:
             done.append(f"안 바뀜: {old[:20]!r} — {problem} ({n}곳은 바꿈)")

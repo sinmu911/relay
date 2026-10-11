@@ -275,3 +275,18 @@ def test_mock_owncaret_ignores_script_selection_like_naver(base_url, tmp_path):
         page.keyboard.insert_text("1,300엔")
         text = frame.locator("#doc").inner_text()
     assert "1,200엔" in text and "1,300엔" in text     # 옛 방식이면 안 바뀌고 엉뚱한 데 들어감
+
+
+def test_join_prev_stops_if_extra_backspace_eats_text(base_url, tmp_path):
+    """빈 줄 없애기(join_prev)는 글자 수가 그대로일 때만 — 글자를 먹으면 '안 바뀜'(발행 막음)."""
+    from naver_editor import apply_edits
+    with publisher(tmp_path, f"{base_url}/editor.html?owncaret=1") as pub:
+        page = pub._ctx.new_page()
+        frame = pub._open_editor(page)
+        pub._dismiss_popups(frame)
+        frame.locator(".se-component.se-text .se-text-paragraph").last.click()
+        page.keyboard.insert_text("앞 글자 지울말")
+        pub._open_editor = lambda _p: frame
+        _, _, done = apply_edits(pub, "1", {"replace": [{"old": "지울말", "new": "", "join_prev": True}]}, {},
+                                 edit_url=f"{base_url}/editor.html")
+    assert done[0].startswith("안 바뀜") and "빈 줄" in done[0]
