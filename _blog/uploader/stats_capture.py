@@ -12,9 +12,11 @@ from typing import Dict, List, Tuple
 log = logging.getLogger(__name__)
 
 PAGES: List[Tuple[str, str]] = [
-    ("블로그통계", "https://admin.blog.naver.com/{blog_id}/stat/today"),
+    ("블로그통계", "https://admin.blog.naver.com/{blog_id}/stat/today"),          # 오늘 조회·공감·댓글·유입
+    ("조회수", "https://admin.blog.naver.com/{blog_id}/stat/visit_pv"),           # 날짜별 조회수
+    ("조회수순위", "https://admin.blog.naver.com/{blog_id}/stat/rank_pv"),        # 글별 조회수
+    ("유입분석", "https://admin.blog.naver.com/{blog_id}/stat/referer"),          # 유입 경로·검색어
     ("크리에이터어드바이저", "https://creator-advisor.naver.com/naver_blog/{blog_id}"),
-    ("검색트렌드", "https://creator-advisor.naver.com/naver_blog/{blog_id}/trends"),
     ("애드포스트", "https://adpost.naver.com/"),
     ("애드포스트수입", "https://adpost.naver.com/mypage/income"),
 ]
