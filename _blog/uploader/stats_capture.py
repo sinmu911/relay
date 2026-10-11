@@ -19,6 +19,8 @@ PAGES: List[Tuple[str, str]] = [
     ("크리에이터어드바이저", "https://creator-advisor.naver.com/naver_blog/{blog_id}"),
     ("애드포스트", "https://adpost.naver.com/main"),                            # 회원 첫 화면(수입 요약)
     ("애드포스트수입보고서", "https://adpost.naver.com/report/revenue"),           # 노출·클릭·수입
+    ("월간조회수순위", "https://blog.stat.naver.com/blog/rank/cv/content?blogId={blog_id}&term=MONTH"),
+    ("글찾기_묘반", "https://blog.naver.com/PostSearchList.naver?blogId={blog_id}&orderType=sim&searchText=%EB%AC%98%EB%B0%98"),
 ]
 LINKS_JS = """() => [...document.querySelectorAll('a[href]')].map(a => [a.innerText.trim().slice(0, 40), a.href])
   .filter(([t, h]) => h.startsWith('http')).slice(0, 300)"""
