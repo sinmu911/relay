@@ -147,7 +147,7 @@ def test_blog_section_post_in_editor(base_url, tmp_path):
     order = ["img:" + c["img"] if "img" in c else "text" for c in sub["comps"] if "img" in c or c["text"]]
     assert order == ["img:테스트_00_대표.png", "text", "img:테스트_01_지도.png", "text"]
     html = " ".join(c["html"] for c in sub["comps"] if c.get("text"))
-    assert "<strong>굵게</strong>" in html and "color:#0075c8" in html and "<strong>■ 하루 순서</strong>" in html
+    assert "<strong>굵게</strong>" in html and "color:#0075c8" in html and "<h3><strong>하루 순서</strong></h3>" in html and "<blockquote>" in html
 
 
 @pytest.mark.parametrize("persist,expected", [("1", []), ("0", ["NID_AUT", "NID_SES"])])

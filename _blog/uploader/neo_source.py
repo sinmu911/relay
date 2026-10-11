@@ -82,19 +82,31 @@ def split_sections(text: str) -> Tuple[str, Dict[str, str]]:
     return preamble, secs
 
 
+def _link(url: str, label: str = "") -> str:
+    tail = ""
+    while url and url[-1] in ").,!?'\"":
+        tail = url[-1] + tail
+        url = url[:-1]
+    return f'<a href="{url}">{label or url}</a>{tail}'
+
+
 def render_inline(line: str) -> str:
     out = htmllib.escape(line, quote=False)
     out = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", out)
     out = re.sub(r"\{파랑:\s*(.+?)\}", r'<span style="color:%s">\1</span>' % BLUE, out)
-
-    def link(m: "re.Match[str]") -> str:
-        url = m.group(0)
-        tail = ""
-        while url and url[-1] in ").,!?'\"":
-            tail = url[-1] + tail
-            url = url[:-1]
-        return f'<a href="{url}">{url}</a>{tail}'
-    return URL_RE.sub(link, out)
+    # 줄 끝 주소는 글자에 링크로 건다(주소 글자는 안 보이게 — 사람이 에디터로 링크 거는 모양, 연구4 3장)
+    #   "… 여기서 자세히 → 글 제목 https://…"  → "… 여기서 자세히 → <a>글 제목</a>"
+    #   "① 떠나기 전: 일정 글 → https://…"     → "<a>① 떠나기 전: 일정 글</a>"
+    m = re.match(r"^(.*\S)\s+(https?://\S+)$", out)
+    if m and not URL_RE.search(m.group(1)):
+        pre, url = m.group(1), m.group(2)
+        if pre.endswith("→"):
+            return _link(url, pre[:-1].rstrip())
+        if "→" in pre:
+            head, label = pre.rsplit("→", 1)
+            if label.strip():
+                return f"{head}→ " + _link(url, label.strip())
+    return URL_RE.sub(lambda mm: _link(mm.group(0)), out)
 
 
 def render_block(lines: List[str]) -> str:
@@ -104,8 +116,12 @@ def render_block(lines: List[str]) -> str:
         s = line.rstrip()
         if not s.strip():
             parts.append("<p><br></p>")
-        elif s.lstrip().startswith(("■", "▶")):   # 소제목·인용구는 굵게(기호는 글에 그대로 보이게 둔다)
-            parts.append(f"<p><strong>{render_inline(s.strip())}</strong></p>")
+        elif s.lstrip().startswith("■"):
+            # 소제목은 에디터 소제목 모양으로(규칙서 7장 — 한 단계 크게). ■ 기호는 뺀다.
+            parts.append(f"<h3><strong>{render_inline(s.strip().lstrip('■').strip())}</strong></h3>")
+        elif s.lstrip().startswith("▶"):
+            # 핵심 숫자 한 줄은 에디터 인용구 모양으로(규칙서 7장). ▶ 기호는 뺀다.
+            parts.append(f"<blockquote><p><strong>{render_inline(s.strip().lstrip('▶').strip())}</strong></p></blockquote>")
         else:
             parts.append(f"<p>{render_inline(s)}</p>")
     return "".join(parts)

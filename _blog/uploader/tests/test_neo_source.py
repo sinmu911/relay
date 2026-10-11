@@ -93,10 +93,11 @@ def test_reads_blog_section_format(tmp_path):
     first, second = post.segments[1].html, post.segments[3].html
     assert "<strong>굵게</strong>" in first
     assert '<span style="color:#0075c8">파란 글씨</span>' in first
-    assert "<p><strong>▶ 하루 비용 · 400디르함</strong></p>" in first
-    assert "<p><strong>■ 하루 순서</strong></p>" in first
+    assert "<blockquote><p><strong>하루 비용 · 400디르함</strong></p></blockquote>" in first
+    assert "<h3><strong>하루 순서</strong></h3>" in first
     assert "← 이전 편: ① 준비</p>" in first and "발행 후 링크" not in first   # 자리표시는 뺌
-    assert '<a href="https://blog.naver.com/mose_love/224288164082">' in second
+    assert '→ <a href="https://blog.naver.com/mose_love/224288164082">지난 글</a>' in second
+    assert ">https://blog.naver.com" not in second            # 주소 글자는 안 보이게
     assert "&lt;script&gt;" in second and "<script>" not in second
     everything = "".join(s.html for s in post.segments)
     assert "내부 메모" not in everything and "목표 검색어" not in everything   # 점검·머리글은 안 올라감
@@ -286,3 +287,13 @@ def test_policy_gate_needs_checkpoint(tmp_path):
 def test_policy_gate_passes_clean_post(tmp_path):
     _, _, post = load_one(make_neo(tmp_path))
     assert post.errors == []
+
+
+def test_link_lines_become_text_links():
+    from neo_source import render_inline
+    assert render_inline("① 떠나기 전: 11박 12일 → https://blog.naver.com/a/1") == \
+        '<a href="https://blog.naver.com/a/1">① 떠나기 전: 11박 12일</a>'
+    assert render_inline("👉 더 뷰는 여기서 자세히 → 더 뷰 후기 https://blog.naver.com/a/2") == \
+        '👉 더 뷰는 여기서 자세히 → <a href="https://blog.naver.com/a/2">더 뷰 후기</a>'
+    assert render_inline("주소는 https://x.com/a 이에요") == '주소는 <a href="https://x.com/a">https://x.com/a</a> 이에요'
+    assert render_inline("끝 https://x.com/b.") == '끝 <a href="https://x.com/b">https://x.com/b</a>.'
