@@ -297,3 +297,10 @@ def test_link_lines_become_text_links():
         '👉 더 뷰는 여기서 자세히 → <a href="https://blog.naver.com/a/2">더 뷰 후기</a>'
     assert render_inline("주소는 https://x.com/a 이에요") == '주소는 <a href="https://x.com/a">https://x.com/a</a> 이에요'
     assert render_inline("끝 https://x.com/b.") == '끝 <a href="https://x.com/b">https://x.com/b</a>.'
+
+
+def test_series_numbers_are_not_similar():
+    from sources import find_similar
+    t3 = "[두바이 ③] 아부다비 하루 코스 총정리 동선과 입장료"
+    assert find_similar(t3.replace("③", "④"), [t3]) is None
+    assert find_similar(t3, [t3]) == t3

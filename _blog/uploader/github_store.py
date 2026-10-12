@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import http.client
 import json
 import logging
 import urllib.error
@@ -58,7 +59,7 @@ class GitHubStore:
                 return resp.status, resp.read()
         except urllib.error.HTTPError as e:
             return e.code, e.read()
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+        except (OSError, http.client.HTTPException) as e:   # 3.9: socket.timeout 은 TimeoutError 가 아님
             raise StoreError(f"GitHub 연결 실패: {e}") from e
 
     def _json(self, status: int, raw: bytes, what: str):

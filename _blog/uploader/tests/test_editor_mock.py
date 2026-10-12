@@ -319,3 +319,49 @@ def test_edit_ignores_editor_button_text_changes(base_url, tmp_path):
                                  edit_url=f"{base_url}/editor.html")
         text = frame.locator(".se-component.se-text").first.inner_text()
     assert done[0].startswith("바꿈 2곳") and "**" not in text
+
+
+def test_all_with_old_inside_new_is_refused(base_url, tmp_path):
+    """'all' 인데 새 글자에 옛 글자가 들어 있으면 같은 자리를 끝없이 바꾼다 → 거절(발행 막음)."""
+    from naver_editor import apply_edits
+    with publisher(tmp_path, f"{base_url}/editor.html?owncaret=1") as pub:
+        page = pub._ctx.new_page()
+        frame = pub._open_editor(page)
+        pub._dismiss_popups(frame)
+        frame.locator(".se-component.se-text .se-text-paragraph").last.click()
+        page.keyboard.insert_text("가격 1,200엔")
+        pub._open_editor = lambda _p: frame
+        _, _, done = apply_edits(pub, "1", {"replace": [{"old": "가격", "new": "가격(2026)", "all": True}]}, {},
+                                 edit_url=f"{base_url}/editor.html")
+        text = frame.locator("#doc").inner_text()
+    assert done[0].startswith("안 바뀜") and "(2026)" not in text
+
+
+def test_misaimed_edit_is_caught_by_whole_doc_check(base_url, tmp_path):
+    """클릭이 한 글자 어긋나 엉뚱한 글자를 지워도 글자 수는 맞을 수 있다 — 문서 전체 비교로 잡는다."""
+    import naver_editor
+    from naver_editor import apply_edits
+    with publisher(tmp_path, f"{base_url}/editor.html?owncaret=1") as pub:
+        page = pub._ctx.new_page()
+        frame = pub._open_editor(page)
+        pub._dismiss_popups(frame)
+        frame.locator(".se-component.se-text .se-text-paragraph").last.click()
+        page.keyboard.insert_text("2025년 가격")
+        pub._open_editor = lambda _p: frame
+        real = naver_editor._select_like_person
+
+        def off_by_one(page_, frame_, sel):          # 한 글자 뒤를 잡음: "025년 " → 지우면 "2가격"
+            ok = real(page_, frame_, sel)
+            page_.keyboard.press("Shift+ArrowLeft") if False else None
+            page_.keyboard.press("ArrowLeft")
+            page_.keyboard.press("ArrowRight")
+            for _ in range(sel["n"]):
+                page_.keyboard.press("Shift+ArrowRight")
+            return ok
+        naver_editor._select_like_person = off_by_one
+        try:
+            _, _, done = apply_edits(pub, "1", {"replace": [{"old": "2025년", "new": ""}]}, {},
+                                     edit_url=f"{base_url}/editor.html")
+        finally:
+            naver_editor._select_like_person = real
+    assert done[0].startswith("안 바뀜")

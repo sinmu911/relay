@@ -215,6 +215,7 @@ class NaverPublisher:
             saved = _wait_until(frame, lambda: _squash(btn.inner_text()) != before
                                 or frame.get_by_text("저장되었습니다").count() > 0, 10000)
             shot = self._shot(page, "draft")
+            self.last_draft_confirmed = saved
             if not saved:
                 log.warning("임시저장 확인 표시를 못 봤어요(화면 사진 확인): %s", shot)
             return shot
@@ -550,14 +551,16 @@ DOC_TEXT_JS = """() => {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode: n =>
     n.parentElement && n.parentElement.closest('.se-text-paragraph') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT});
   const hidden = new RegExp('[' + String.fromCharCode(0x200b, 0xfeff) + ']', 'g');
+  const nbsp = new RegExp(String.fromCharCode(0xa0), 'g');   // 에디터가 끝 칸을 nbsp 로 바꿔도 같은 글로 본다
   const out = [];
-  while (walker.nextNode()) out.push(walker.currentNode.nodeValue.replace(hidden, ''));
+  while (walker.nextNode()) out.push(walker.currentNode.nodeValue.replace(hidden, '').replace(nbsp, ' '));
   return out.join('');
 }"""
 
 
 def _expected_doc(doc: str, ctx: str, old: str, new: str) -> str:
     """바꾸려던 자리(ctx 안의 old)만 바꾼 문서 — 실제와 비교하면 '예상 밖' 변화만 남는다."""
+    ctx = ctx.replace("\xa0", " ")
     at = doc.find(ctx)
     k = at + ctx.find(old) if at >= 0 else doc.find(old)
     return doc[:k] + new + doc[k + len(old):] if k >= 0 else doc
@@ -574,30 +577,6 @@ def _diff_note(a: str, b: str, pad: int = 15) -> str:
     if a == b:
         return "(없음)"
     return (f"전 {a[max(0, i - pad):len(a) - j + pad][:200]!r} → 후 {b[max(0, i - pad):len(b) - j + pad][:200]!r}")
-# 본문 글자 수·찾는 글자 개수 — 바꾼 뒤 '딱 예상만큼' 바뀌었는지 확인용(에디터가 넣는 보이지 않는 글자는 뺌).
-# 제목·본문 문단(.se-text-paragraph) 글자만 센다 — 사진 옆 버튼 글씨('대표사진' 등)는 클릭에 따라 바뀌어서(10-11 시험).
-TEXT_STATS_JS = """(oldText) => {
-  const root = document.querySelector('.se-components-wrap') || document.body;
-  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode: n =>
-    n.parentElement && n.parentElement.closest('.se-text-paragraph') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT});
-  const hidden = new RegExp('[' + String.fromCharCode(0x200b, 0xfeff) + ']', 'g');
-  let len = 0, count = 0;
-  while (walker.nextNode()) {
-    const v = walker.currentNode.nodeValue.replace(hidden, '');
-    len += v.length;
-    for (let i = v.indexOf(oldText); i >= 0; i = v.indexOf(oldText, i + oldText.length)) count++;
-  }
-  return [len, count];
-}"""
-CARET_AFTER_JS = """(anchor) => {
-  const paras = [...document.querySelectorAll('.se-component.se-text .se-text-paragraph')];
-  const p = paras.find(el => el.innerText.includes(anchor));
-  if (!p) return false;
-  p.scrollIntoView({block: 'center'});
-  const r = document.createRange(); r.selectNodeContents(p); r.collapse(false);
-  const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
-  return true;
-}"""
 EDIT_URL = "https://blog.naver.com/PostUpdateForm.naver?blogId={blog_id}&logNo={log_no}"
 
 
@@ -638,11 +617,14 @@ def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str
     for item in spec.get("replace", []):
         old, new = item["old"], item.get("new", "")
         n, problem = 0, ""
+        if item.get("all") and old in new:
+            # 새 글자 안에 옛 글자가 들어 있으면 방금 바꾼 자리를 또 찾아 끝없이 덧붙인다(점검 10-12)
+            done.append(f"안 바뀜: {old[:20]!r} — 'all' 은 새 글자에 옛 글자가 들어 있으면 못 써요(한 곳씩 따로 적어 주세요)")
+            continue
         while n < (200 if item.get("all") else 1):
-            before_len, before_cnt = frame.evaluate(TEXT_STATS_JS, old)
-            if not before_cnt:
-                break
             before_doc = frame.evaluate(DOC_TEXT_JS)
+            if old not in before_doc:
+                break
             # 진짜 마우스·키보드로 잡으면 지우기 키도 먹는다(10-11 시험: 덮어쓰기로 지우면 어긋남)
             sel = frame.evaluate(FIND_TEXT_JS, old)
             if not sel.get("ok"):
@@ -655,18 +637,19 @@ def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str
             else:
                 page.keyboard.press("Backspace")
             page.wait_for_timeout(150)
-            after_len, after_cnt = frame.evaluate(TEXT_STATS_JS, old)
-            if after_len != before_len + len(new) - len(old) or (old not in new and after_cnt >= before_cnt):
-                problem = (f"예상과 다르게 바뀜(글자 수 {before_len}→{after_len}, 남은 개수 {after_cnt}, "
-                           f"자리: {sel.get('ctx', '')!r})\n     예상 밖으로 바뀐 곳: "
-                           + _diff_note(_expected_doc(before_doc, sel.get('ctx', ''), old, new),
-                                        frame.evaluate(DOC_TEXT_JS)))
+            # 문서 전체가 '그 자리만 바뀐 모양'과 글자 하나까지 같아야 한다 — 클릭이 한 글자 어긋나
+            # 엉뚱한 글자를 지운 경우도 여기서 걸린다(글자 수만 보면 통과해 버림, 점검 10-12)
+            expected = _expected_doc(before_doc, sel.get("ctx", ""), old, new)
+            after_doc = frame.evaluate(DOC_TEXT_JS)
+            if after_doc != expected:
+                problem = (f"예상과 다르게 바뀜(글자 수 {len(before_doc)}→{len(after_doc)}, "
+                           f"자리: {sel.get('ctx', '')!r})\n     예상 밖으로 바뀐 곳: " + _diff_note(expected, after_doc))
                 break
             if item.get("join_prev") and not new:
-                # 문단 글을 다 지운 뒤 남은 빈 줄을 없애 윗줄에 붙인다. 글자 수는 그대로여야 함(빈 줄만 없어짐).
+                # 문단 글을 다 지운 뒤 남은 빈 줄을 없애 윗줄에 붙인다. 글자는 하나도 바뀌면 안 됨(빈 줄만 없어짐).
                 page.keyboard.press("Backspace")
                 page.wait_for_timeout(150)
-                if frame.evaluate(TEXT_STATS_JS, old)[0] != after_len:
+                if frame.evaluate(DOC_TEXT_JS) != after_doc:
                     problem = "빈 줄 없애기에서 글자가 같이 지워짐"
                     break
             n += 1
@@ -675,25 +658,9 @@ def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str
         else:
             done.append(f"바꿈 {n}곳: {old[:20]!r} → {new[:20]!r}" if n else f"못 찾음: {old[:30]!r}")
     for item in spec.get("insert_images", []):
-        path = images.get(item["file"])
-        if not path:
-            done.append(f"그림 파일 없음: {item['file']}")
-            continue
-        if not frame.evaluate(CARET_AFTER_JS, item["after"]):
-            done.append(f"그림 넣을 자리 못 찾음: {item['after'][:30]!r}")
-            continue
-        page.keyboard.press("Enter")
-        cnt = frame.locator(SELECTORS["image_component"]).count()
-        btn = _first_visible(frame, SELECTORS["image_button"], T_SHORT_MS)
-        if not btn:
-            raise EditorError("사진 버튼을 못 찾았어요")
-        with page.expect_file_chooser(timeout=15000) as chooser:
-            btn.click()
-        chooser.value.set_files(str(path))
-        if not _wait_until(frame, lambda: frame.locator(SELECTORS["image_component"]).count() > cnt, T_IMAGE_MS):
-            raise EditorError(f"그림이 안 들어갔어요: {path.name}")
-        page.wait_for_timeout(1500)
-        done.append(f"그림 추가: {item['file']} (← {item['after'][:20]!r} 뒤)")
+        # 수정 화면에서 그림 넣기는 아직 못 믿는다 — 커서를 스크립트로 두면 네이버가 무시해서
+        # 그림이 엉뚱한 자리에 들어간다(점검 10-12). 넣을 그림이 있으면 발행하지 않는다.
+        done.append(f"그림 넣을 자리 확인 못 함(수정에서 그림 넣기는 아직 안 돼요): {item.get('file', '')}")
     return page, frame, done
 
 

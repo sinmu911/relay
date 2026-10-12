@@ -218,6 +218,7 @@ class Runner:
                             break
                     if draft_mode:
                         events.append(self._draft_one(publisher, state, post, f["sha"]))
+                        self.state_file.save(state)   # 브라우저 닫기 전에 — 닫다 멈춰도 같은 글을 또 임시저장하지 않게
                         break   # 한 번에 한 편만, 목록 순서대로(실패하면 다음 실행에 같은 글부터 다시)
                     events.append(self._upload_one(publisher, state, post, f["sha"], dry_run))
                     if events[-1].startswith("login:"):
@@ -324,6 +325,7 @@ class Runner:
             try:
                 images = self.store.fetch_images(post, Path(tmp))
                 publisher.save_draft(post, images)
+                confirmed = getattr(publisher, "last_draft_confirmed", True)
             except NotLoggedInError:
                 self._login_alert(state)
                 return f"login:{post.path}"
@@ -335,7 +337,10 @@ class Runner:
                 return f"failed:{post.path}"
         state["posts"][post.path] = _record(post, blob_sha, DRAFTED, self.now_fn(), prev,
                                             retry=post.retry, attempts=attempts)
-        self.notify("임시저장했어요", f"{post.title} — 네이버 블로그 앱 [글쓰기] → 임시저장 글에서 확인하고 발행해 주세요.")
+        if confirmed:
+            self.notify("임시저장했어요", f"{post.title} — 네이버 블로그 앱 [글쓰기] → 임시저장 글에서 확인하고 발행해 주세요.")
+        else:
+            self.notify("임시저장 확인 필요", f"{post.title} — 저장 표시를 못 봤어요. 앱 임시저장 글에 있는지 봐 주세요(없으면 알려 주세요).")
         log.info("임시저장 %s", post.path)
         return f"drafted:{post.path}"
 
@@ -480,7 +485,7 @@ def load_edit_specs(path: Path) -> List[dict]:
 def run_edit(cfg: dict, state_file: StateFile, publisher_factory, notify, dry_run: bool = False) -> int:
     """글수정_대기.json 의 글들을 차례로 고친다. 같은 id 는 한 번만(기록은 state meta.edits_done).
     한 글이 어긋나면 그 글만 발행하지 않고 다음 글로 넘어간다."""
-    from naver_editor import NotLoggedInError, apply_edits, publish_edit
+    from naver_editor import EditorError, NotLoggedInError, apply_edits, publish_edit
     root = Path(os.path.expanduser(str(cfg["neo_root"])))
     spec_path = root / EDIT_SPEC_REL
     if not spec_path.exists():
@@ -536,7 +541,15 @@ def run_edit(cfg: dict, state_file: StateFile, publisher_factory, notify, dry_ru
                         print(" 못 한 게 있어서 이 글은 발행 안 했어요. 위 줄을 보내 주세요.")
                         failed += 1
                         continue
-                    ok = publish_edit(pub, page, frame, spec["log_no"])
+                    try:
+                        ok = publish_edit(pub, page, frame, spec["log_no"])
+                    except EditorError as e:     # 발행 창이 안 열림 — [발행] 확인은 안 눌렀다
+                        print(f" 발행 창이 안 열려서 발행 안 했어요: {str(e)[:100]}")
+                        failed += 1
+                        continue
+                    except Exception as e:  # noqa: BLE001 — [발행] 누른 뒤 오류: 올라갔을 수 있다
+                        print(f" 발행 누른 뒤 오류: {str(e)[:100]}")
+                        ok = False
                     # 결과 화면을 못 봤어도 '했음'으로 남긴다 — 다시 돌리면 같은 글자를 또 덧붙일 수 있어서
                     done_ids[spec["id"]] = now_str(datetime.now()) + ("" if ok else " (발행 뒤 확인 못 함)")
                     state_file.save(state)

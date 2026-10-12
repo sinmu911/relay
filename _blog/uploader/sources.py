@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import difflib
+import http.client
 import logging
 import re
 import unicodedata
@@ -84,13 +85,20 @@ def title_key(title: str) -> str:
     return re.sub(r"[\W_]+", "", unicodedata.normalize("NFC", title).lower())
 
 
+NUM_RE = re.compile(r"[0-9①-⑳]+")   # 숫자·①~⑳ — 시리즈 ③과 ④는 비슷해도 다른 글
+
+
 def find_similar(title: str, titles: List[str], threshold: float = SIMILAR) -> Optional[str]:
     key = title_key(title)
     if not key:
         return None
+    nums = NUM_RE.findall(title)
     for t in titles:
         other = title_key(t)
-        if other and (other == key or difflib.SequenceMatcher(None, key, other).ratio() >= threshold):
+        if not other:
+            continue
+        if other == key or (NUM_RE.findall(t) == nums
+                            and difflib.SequenceMatcher(None, key, other).ratio() >= threshold):
             return t
     return None
 
@@ -110,7 +118,7 @@ class BlogFeed:
         try:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 return resp.read()
-        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+        except (OSError, http.client.HTTPException) as e:   # 3.9: socket.timeout 은 TimeoutError 가 아님
             raise StoreError(f"블로그 글 목록(RSS)을 못 받음: {e}") from e
 
     def titles(self) -> List[str]:
