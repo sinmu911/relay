@@ -69,3 +69,40 @@ def test_unconfirmed_publish_is_recorded_so_it_is_not_redone(tmp_path, monkeypat
 def test_bad_list_is_refused(tmp_path, monkeypatch):
     cfg, sf, published = setup(tmp_path, monkeypatch, {"edits": [{"id": "a", "log_no": "x"}]}, {})
     assert naver_upload.run_edit(cfg, sf, fake_factory, lambda *a: None) == 1 and published == []
+
+
+def test_auto_edit_tests_then_waits_for_approval_then_publishes(tmp_path, monkeypatch):
+    """자동 실행: 새 수정은 시험만 → 결과 파일 → 지문 승인 뒤에만 발행 → 다시는 안 함."""
+    spec = {"id": "b", "log_no": "224241636486", "replace": [{"old": "x", "new": "y"}]}
+    cfg, sf, published = setup(tmp_path, monkeypatch, spec, {"b": ["바꿈 1곳: x"]})
+    root = tmp_path / "neo"
+    assert naver_upload.auto_edit(cfg, sf, fake_factory, lambda *a: None) == "edit_b:시험"
+    assert published == []
+    res = json.loads((root / "상태" / "글수정_결과.json").read_text(encoding="utf-8"))["results"][0]
+    assert res["status"] == "시험 끝(다 됨)" and res["hash"] == naver_upload.edit_spec_hash(spec)
+    assert naver_upload.auto_edit(cfg, sf, fake_factory, lambda *a: None) == ""      # 승인 기다림
+    assert published == []
+    spec["approved"] = "wrong"
+    (root / "상태" / "글수정_대기.json").write_text(json.dumps(spec), encoding="utf-8")
+    assert naver_upload.auto_edit(cfg, sf, fake_factory, lambda *a: None) == ""      # 틀린 지문은 무시
+    spec["approved"] = res["hash"]
+    (root / "상태" / "글수정_대기.json").write_text(json.dumps(spec), encoding="utf-8")
+    assert naver_upload.auto_edit(cfg, sf, fake_factory, lambda *a: None) == "edit_b:발행"
+    assert published == ["224241636486"]
+    assert naver_upload.auto_edit(cfg, sf, fake_factory, lambda *a: None) == ""      # 다시는 안 함
+
+
+def test_auto_edit_changed_content_is_retested_and_bad_test_never_publishes(tmp_path, monkeypatch):
+    spec = {"id": "c", "log_no": "224241636486", "replace": [{"old": "x", "new": "y"}]}
+    results = {"c": ["안 바뀜: x"]}
+    cfg, sf, published = setup(tmp_path, monkeypatch, spec, results)
+    root = tmp_path / "neo"
+    naver_upload.auto_edit(cfg, sf, fake_factory, lambda *a: None)
+    h = naver_upload.edit_spec_hash(spec)
+    spec["approved"] = h                                   # 실패한 시험을 승인해도
+    (root / "상태" / "글수정_대기.json").write_text(json.dumps(spec), encoding="utf-8")
+    assert naver_upload.auto_edit(cfg, sf, fake_factory, lambda *a: None) == ""
+    assert published == []                                 # 발행 안 함
+    spec["replace"] = [{"old": "x", "new": "z"}]           # 내용을 고치면 다시 시험부터
+    (root / "상태" / "글수정_대기.json").write_text(json.dumps(spec), encoding="utf-8")
+    assert naver_upload.auto_edit(cfg, sf, fake_factory, lambda *a: None) == "edit_c:시험"

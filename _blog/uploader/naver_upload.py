@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
 import logging
 import logging.handlers
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -482,9 +484,11 @@ def load_edit_specs(path: Path) -> List[dict]:
     return specs
 
 
-def run_edit(cfg: dict, state_file: StateFile, publisher_factory, notify, dry_run: bool = False) -> int:
+def run_edit(cfg: dict, state_file: StateFile, publisher_factory, notify, dry_run: bool = False,
+             plan: Optional[dict] = None, results: Optional[list] = None) -> int:
     """글수정_대기.json 의 글들을 차례로 고친다. 같은 id 는 한 번만(기록은 state meta.edits_done).
-    한 글이 어긋나면 그 글만 발행하지 않고 다음 글로 넘어간다."""
+    한 글이 어긋나면 그 글만 발행하지 않고 다음 글로 넘어간다.
+    plan={id: "dry"|"real"} 이면 그 글들만 그 방식으로(자동 실행용), results 에 글마다 결과를 담는다."""
     from naver_editor import EditorError, NotLoggedInError, apply_edits, publish_edit
     root = Path(os.path.expanduser(str(cfg["neo_root"])))
     spec_path = root / EDIT_SPEC_REL
@@ -504,15 +508,22 @@ def run_edit(cfg: dict, state_file: StateFile, publisher_factory, notify, dry_ru
     try:
         state = state_file.load()
         done_ids = state.setdefault("meta", {}).setdefault("edits_done", {})
-        todo = [spec for spec in specs if dry_run or spec["id"] not in done_ids]
+        if plan is not None:
+            todo = [spec for spec in specs if spec["id"] in plan and spec["id"] not in done_ids]
+        else:
+            todo = [spec for spec in specs if dry_run or spec["id"] not in done_ids]
         for spec in specs:
-            if spec not in todo:
+            if plan is None and spec not in todo:
                 print(f"[{spec.get('name', spec['id'])}] 이미 고친 글이라 건너뜀({done_ids[spec['id']]})")
         if not todo:
             return 0
         with publisher_factory() as pub:
             for spec in todo:
                 name = spec.get("name", spec["id"])
+                spec_dry = dry_run or (plan is not None and plan.get(spec["id"]) == "dry")
+                res = {"id": spec["id"], "name": name, "mode": "시험" if spec_dry else "발행", "done": [], "shot": ""}
+                if results is not None:
+                    results.append(res)
                 print(f"[{name}]")
                 images = {}
                 img_dir = root / spec.get("image_dir", "")
@@ -526,25 +537,32 @@ def run_edit(cfg: dict, state_file: StateFile, publisher_factory, notify, dry_ru
                     raise
                 except Exception as e:  # noqa: BLE001 — 이 글 화면이 안 열려도 다음 글은 계속
                     print(f" 수정 화면에서 오류(발행 안 함): {str(e)[:150]}")
+                    res["status"] = f"오류: {str(e)[:200]}"
                     failed += 1
                     continue
+                res["done"] = done
                 try:
                     for line in done:
                         print(" -", line)
                     shot = pub._shot(page, "edit")
-                    if dry_run:
+                    res["shot"] = str(shot or "")
+                    missing = any(d.startswith(EDIT_MISSING) for d in done)
+                    if spec_dry:
                         print(f" 시험 끝 — 발행 안 눌렀어요. 화면 사진: {shot}")
-                        if any(d.startswith(EDIT_MISSING) for d in done):
+                        res["status"] = "시험 끝(못 한 것 있음)" if missing else "시험 끝(다 됨)"
+                        if missing:
                             failed += 1
                         continue
-                    if any(d.startswith(EDIT_MISSING) for d in done):
+                    if missing:
                         print(" 못 한 게 있어서 이 글은 발행 안 했어요. 위 줄을 보내 주세요.")
+                        res["status"] = "못 한 게 있어 발행 안 함"
                         failed += 1
                         continue
                     try:
                         ok = publish_edit(pub, page, frame, spec["log_no"])
                     except EditorError as e:     # 발행 창이 안 열림 — [발행] 확인은 안 눌렀다
                         print(f" 발행 창이 안 열려서 발행 안 했어요: {str(e)[:100]}")
+                        res["status"] = f"발행 창 안 열림(발행 안 함): {str(e)[:100]}"
                         failed += 1
                         continue
                     except Exception as e:  # noqa: BLE001 — [발행] 누른 뒤 오류: 올라갔을 수 있다
@@ -553,6 +571,7 @@ def run_edit(cfg: dict, state_file: StateFile, publisher_factory, notify, dry_ru
                     # 결과 화면을 못 봤어도 '했음'으로 남긴다 — 다시 돌리면 같은 글자를 또 덧붙일 수 있어서
                     done_ids[spec["id"]] = now_str(datetime.now()) + ("" if ok else " (발행 뒤 확인 못 함)")
                     state_file.save(state)
+                    res["status"] = "발행 끝" if ok else "발행 눌렀는데 결과 못 봄 — 블로그 확인 필요"
                     if ok:
                         notify("글 수정했어요", name)
                         print(" ✅ 수정 발행 끝")
@@ -568,6 +587,82 @@ def run_edit(cfg: dict, state_file: StateFile, publisher_factory, notify, dry_ru
         return 1 if failed else 0
     finally:
         lock.release()
+
+
+EDIT_RESULT_REL = Path("상태") / "글수정_결과.json"
+EDIT_MAX_FAILS = 2
+
+
+def edit_spec_hash(spec: dict) -> str:
+    """승인 표시(approved)를 뺀 수정 내용의 지문 — 시험한 것과 똑같은 내용만 승인으로 발행되게."""
+    body = {k: v for k, v in spec.items() if k != "approved"}
+    return hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def auto_edit(cfg: dict, state_file: StateFile, publisher_factory, notify) -> str:
+    """5분 자동 실행 끝에 부른다(사장님 요청 10-12: 맥에서 안 치게).
+    새 수정 내용은 시험만 하고 결과를 상태/글수정_결과.json 에 남긴다(발행 안 함).
+    블로그 보조가 결과를 보고 그 글에 "approved": "<지문>" 을 적으면 다음 바퀴에 발행까지.
+    지문이 시험한 내용과 다르면(내용이 바뀌면) 다시 시험부터."""
+    from naver_editor import NotLoggedInError
+    root = Path(os.path.expanduser(str(cfg["neo_root"])))
+    if not (root / EDIT_SPEC_REL).exists():
+        return ""
+    try:
+        specs = load_edit_specs(root / EDIT_SPEC_REL)
+    except (OSError, ValueError) as e:
+        log.warning("글수정_대기.json 을 못 읽음: %s", e)
+        return "edit_bad_spec"
+    meta = state_file.load().get("meta", {})
+    done, tested, fails = meta.get("edits_done", {}), meta.get("edits_tested", {}), meta.get("edit_fails", {})
+    plan, hashes = {}, {}
+    for spec in specs:
+        h = hashes[spec["id"]] = edit_spec_hash(spec)
+        if spec["id"] in done or fails.get(f"{spec['id']}:{h}", 0) >= EDIT_MAX_FAILS:
+            continue
+        t = tested.get(spec["id"]) or {}
+        if t.get("hash") != h:
+            plan[spec["id"]] = "dry"
+        elif t.get("ok") and spec.get("approved") == h:
+            plan[spec["id"]] = "real"
+    if not plan:
+        return ""
+    results: list = []
+    try:
+        run_edit(cfg, state_file, publisher_factory, notify, plan=plan, results=results)
+    except NotLoggedInError:
+        log.error("네이버 로그인이 풀려서 글 수정을 못 함")
+        return "edit_login"
+    lock = RunLock(APP_HOME / "run.lock")
+    if not lock.acquire():
+        return "locked"
+    try:
+        state = state_file.load()
+        meta = state.setdefault("meta", {})
+        for res in results:
+            h = res["hash"] = hashes[res["id"]]
+            if res["mode"] == "시험":
+                ok = res.get("status") == "시험 끝(다 됨)"
+                meta.setdefault("edits_tested", {})[res["id"]] = {"hash": h, "ok": ok}
+            if res.get("status", "").startswith(("오류", "발행 창")) or "status" not in res:
+                key = f"{res['id']}:{h}"
+                meta.setdefault("edit_fails", {})[key] = meta.get("edit_fails", {}).get(key, 0) + 1
+        state_file.save(state)
+    finally:
+        lock.release()
+    try:
+        shots = root / "상태" / "글수정_화면"
+        shots.mkdir(parents=True, exist_ok=True)
+        for res in results:
+            if res.get("shot") and Path(res["shot"]).is_file():
+                shutil.copyfile(res["shot"], shots / f"{res['id']}.png")
+        (root / EDIT_RESULT_REL).write_text(json.dumps(
+            {"_설명": "자동 실행의 글 수정 결과. 시험 끝(다 됨)이면 블로그 보조가 그 글에 \"approved\": hash 를 적어 발행.",
+             "at": now_str(datetime.now()), "results": results}, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError as e:
+        log.warning("글 수정 결과를 드라이브에 못 씀: %s", e)
+    log.info("글 수정 자동: %s", [(r["id"], r["mode"], r.get("status")) for r in results])
+    return "edit_" + ",".join(f"{r['id']}:{r['mode']}" for r in results)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -594,6 +689,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     except ConfigError as e:
         log.error("%s", e)
         return 2
+    if args.cmd == "run" and not args.dry_run and cfg.get("self_update", True):
+        # 드라이브에 새 코드가 올라왔으면 바꾸고 이번 바퀴는 끝 — 다음 바퀴(5분 뒤)부터 새 코드로
+        import self_update
+        lock = RunLock(APP_HOME / "run.lock")
+        if lock.acquire():
+            try:
+                changed = self_update.run(APP_HOME, Path(__file__).resolve().parent)
+            except OSError as e:
+                log.warning("자동 업데이트 실패(올리기는 지금 코드로 계속): %s", e)
+                changed = []
+            finally:
+                lock.release()
+            if changed:
+                return 0
     stores = []
     if "github" in cfg["sources"]:
         stores.append(GitHubStore(cfg["repo"], cfg["branch"], cfg["github_token"], cfg["blog_root"],
@@ -627,8 +736,11 @@ def main(argv: Optional[List[str]] = None) -> int:
             return run_edit(cfg, state_file, publisher_factory, notify, dry_run=args.dry_run)
         events = runner.run(dry_run=args.dry_run, only_path=args.post)
         log.info("끝: %s", ", ".join(events) or "올릴 글 없음")
-        if cfg["stats_daily"] and "neo" in cfg["sources"] and not args.dry_run and "locked" not in events:
-            run_stats(cfg, state_file)
+        if "neo" in cfg["sources"] and not args.dry_run and "locked" not in events:
+            if cfg.get("auto_edit", True):
+                auto_edit(cfg, state_file, publisher_factory, notify)
+            if cfg["stats_daily"]:
+                run_stats(cfg, state_file)
         return 0
     except StateError as e:
         notify("멈춤", "올리기 기록 파일이 깨져서 멈췄어요. 로그를 확인해 주세요.")
