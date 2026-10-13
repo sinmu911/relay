@@ -46,3 +46,13 @@ def test_rejects_path_tricks(tmp_path):
 def test_no_source_dir_is_quiet(tmp_path):
     (tmp_path / "app").mkdir()
     assert self_update.run(tmp_path, tmp_path / "app") == []
+
+
+def test_uses_renamed_drive_copy(tmp_path):
+    """맥 구글 드라이브가 'a (1).py' 로 내려받아도 지문이 맞으면 a.py 로 설치(10-13)."""
+    src, app, home = _setup(tmp_path, {"a.py": b"new"})
+    (src / "a.py").rename(src / "a (1).py")
+    (src / "a (2).py").write_bytes(b"stale")
+    (app / "a.py").write_bytes(b"old")
+    assert self_update.run(home, app) == ["a.py"]
+    assert (app / "a.py").read_bytes() == b"new"

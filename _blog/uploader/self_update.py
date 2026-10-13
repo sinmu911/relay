@@ -30,6 +30,20 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _find_copy(src: Path, name: str, want: str):
+    """지문이 맞는 드라이브 파일 내용. 맥 구글 드라이브가 같은 이름 파일을 바꿔 올리면
+    'naver_upload (1).py' 처럼 이름을 바꿔 내려받는 일이 있어서(10-13) 그 이름도 본다."""
+    p = Path(name)
+    for cand in [src / name] + sorted(src.glob(f"{p.stem} (*){p.suffix}")):
+        try:
+            data = cand.read_bytes()
+        except OSError:
+            continue
+        if _sha(data) == want:
+            return data
+    return None
+
+
 def pending_files(src: Path, app_dir: Path) -> Dict[str, bytes]:
     """바꿔야 할 파일 {이름: 새 내용}. 드라이브가 지문과 하나라도 안 맞으면 빈 것(이번엔 안 바꿈)."""
     try:
@@ -48,12 +62,9 @@ def pending_files(src: Path, app_dir: Path) -> Dict[str, bytes]:
             cur = b""
         if _sha(cur) == want:
             continue
-        try:
-            data = (src / name).read_bytes()
-        except OSError:
-            data = b""
-        if _sha(data) != want:
-            log.info("드라이브 코드가 아직 덜 내려와서 새 코드는 다음에: %s", name)
+        data = _find_copy(src, name, want)
+        if data is None:
+            log.warning("드라이브 코드가 아직 덜 내려와서 새 코드는 다음에: %s", name)
             return {}
         out[name] = data
     return out
