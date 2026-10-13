@@ -245,6 +245,11 @@ class NaverPublisher:
         except (EditorError, PlaywrightError) as e:
             log.warning("태그·카테고리를 미리 못 넣었어요(발행할 때 넣어 주세요): %s", e)
 
+    def auth_cookies(self) -> Dict[str, float]:
+        """로그인 쿠키 이름과 만료(epoch, 창 닫으면 지워지는 쿠키는 -1). 값은 읽지 않는다."""
+        return {c["name"]: float(c.get("expires") or -1)
+                for c in self._ctx.cookies(list(COOKIE_URLS)) if c["name"] in AUTH_COOKIES}
+
     def check_login(self) -> bool:
         """글쓰기 화면을 열어 본다 — 진짜 올릴 때와 똑같은 길로 로그인이 남아 있는지 확인."""
         names = sorted(c["name"] for c in self._ctx.cookies(list(COOKIE_URLS)) if c["name"] in AUTH_COOKIES)

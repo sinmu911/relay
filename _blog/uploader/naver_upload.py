@@ -463,6 +463,27 @@ def run_stats(cfg: dict, state_file: StateFile, force: bool = False, now_fn=date
         lock.release()
 
 
+def run_login_check(cfg: dict, state_file: StateFile, publisher_factory, notify, force: bool = False,
+                    now_fn=datetime.now) -> Optional[dict]:
+    """하루 한 번(또는 로그인이 풀린 직후) 로그인 점검 기록. 실패해도 올리기에는 영향 없음."""
+    import login_watch
+    lock = RunLock(APP_HOME / "run.lock")
+    if not lock.acquire():
+        return None
+    try:
+        state = state_file.load()
+        try:
+            entry = login_watch.check(cfg, state, publisher_factory, notify, now_fn(), force=force)
+        except Exception as e:  # noqa: BLE001
+            log.warning("로그인 점검 실패: %s", e)
+            return None
+        if entry is not None:
+            state_file.save(state)
+        return entry
+    finally:
+        lock.release()
+
+
 EDIT_SPEC_REL = Path("상태") / "글수정_대기.json"
 
 
@@ -737,6 +758,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         events = runner.run(dry_run=args.dry_run, only_path=args.post)
         log.info("끝: %s", ", ".join(events) or "올릴 글 없음")
         if "neo" in cfg["sources"] and not args.dry_run and "locked" not in events:
+            if cfg.get("login_check", True):
+                run_login_check(cfg, state_file, publisher_factory, notify,
+                                force=any(e.startswith("login:") for e in events))
             if cfg.get("auto_edit", True):
                 auto_edit(cfg, state_file, publisher_factory, notify)
             if cfg["stats_daily"]:
