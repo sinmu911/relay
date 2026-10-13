@@ -426,7 +426,7 @@ def do_login(config_path: Path, login_fn=None, publisher_cls=None) -> int:
 
 
 def run_stats(cfg: dict, state_file: StateFile, force: bool = False, now_fn=datetime.now,
-              ctx_factory=None) -> bool:
+              ctx_factory=None, feed=None) -> bool:
     """하루 한 번 통계 화면 저장. 실패해도 올리기에는 영향 없음."""
     now = now_fn()
     lock = RunLock(APP_HOME / "run.lock")
@@ -456,6 +456,18 @@ def run_stats(cfg: dict, state_file: StateFile, force: bool = False, now_fn=date
             log.warning("통계 화면 저장 실패: %s", e)
             return False
         meta["stats_date"] = now.strftime("%Y-%m-%d")
+        try:
+            import scorecard
+            try:
+                posts = (feed or BlogFeed(cfg["blog_id"])).posts()
+            except StoreError as e:
+                log.warning("글 성적표: 블로그 글 목록을 못 받음: %s", e)
+                posts = []
+            n = scorecard.update(meta, Path(os.path.expanduser(str(cfg["neo_root"]))), out_dir, posts, now,
+                                 cfg["blog_id"])
+            log.info("글 성적표 %d줄", n)
+        except Exception as e:  # noqa: BLE001 — 성적표가 안 돼도 통계 저장은 그대로
+            log.warning("글 성적표 실패: %s", e)
         state_file.save(state)
         log.info("통계 화면 저장: %s", results)
         return True
@@ -764,7 +776,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             if cfg.get("auto_edit", True):
                 auto_edit(cfg, state_file, publisher_factory, notify)
             if cfg["stats_daily"]:
-                run_stats(cfg, state_file)
+                run_stats(cfg, state_file, feed=feed)
         return 0
     except StateError as e:
         notify("멈춤", "올리기 기록 파일이 깨져서 멈췄어요. 로그를 확인해 주세요.")

@@ -28,7 +28,8 @@ def test_run_stats_once_a_day_after_9(tmp_path, monkeypatch):
     monkeypatch.setattr("stats_capture.capture", lambda ctx, blog, out: calls.append(out) or {"x": "ok"})
     cfg = {"neo_root": str(tmp_path / "neo"), "blog_id": "me", "headless": True}
     sf = StateFile(tmp_path / "state.json")
-    run = lambda h, d=10: naver_upload.run_stats(cfg, sf, now_fn=lambda: datetime(2026, 10, d, h), ctx_factory=object)
+    run = lambda h, d=10: naver_upload.run_stats(cfg, sf, now_fn=lambda: datetime(2026, 10, d, h), ctx_factory=object,
+                                                 feed=type("F", (), {"posts": lambda self: []})())
     assert run(8) is False and calls == []          # 9시 전엔 안 함
     assert run(10) is True and len(calls) == 1
     assert run(15) is False and len(calls) == 1      # 같은 날 또 안 함

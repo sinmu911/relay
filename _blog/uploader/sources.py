@@ -9,6 +9,7 @@ import unicodedata
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
+from email.utils import parsedate_to_datetime
 from typing import Callable, Dict, List, Optional, Tuple
 
 from github_store import StoreError
@@ -112,6 +113,7 @@ class BlogFeed:
         self._fetch = fetch or self._http
         self.timeout = timeout
         self._titles: Optional[List[str]] = None
+        self._xml = None
 
     def _http(self, url: str) -> bytes:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 naver-blog-uploader"})
@@ -121,12 +123,32 @@ class BlogFeed:
         except (OSError, http.client.HTTPException) as e:   # 3.9: socket.timeout 은 TimeoutError 가 아님
             raise StoreError(f"블로그 글 목록(RSS)을 못 받음: {e}") from e
 
-    def titles(self) -> List[str]:
-        if self._titles is None:
+    def _root(self):
+        if self._xml is None:
             raw = self._fetch(self.url)
             try:
-                root = ET.fromstring(raw)
+                self._xml = ET.fromstring(raw)
             except ET.ParseError as e:
                 raise StoreError(f"블로그 글 목록(RSS) 해석 실패: {e}") from e
-            self._titles = [(t.text or "").strip() for item in root.iter("item") for t in item.findall("title")]
+        return self._xml
+
+    def titles(self) -> List[str]:
+        if self._titles is None:
+            self._titles = [(t.text or "").strip() for item in self._root().iter("item") for t in item.findall("title")]
         return self._titles
+
+    def posts(self) -> List[Dict[str, str]]:
+        """[{log, title, date(YYYY-MM-DD)}] — 글 성적표용."""
+        out = []
+        for item in self._root().iter("item"):
+            link = item.findtext("link") or ""
+            m = re.search(r"/(\d{9,})", link)
+            if not m:
+                continue
+            date = ""
+            try:
+                date = parsedate_to_datetime(item.findtext("pubDate") or "").strftime("%Y-%m-%d")
+            except (TypeError, ValueError):
+                pass
+            out.append({"log": m.group(1), "title": (item.findtext("title") or "").strip(), "date": date})
+        return out
