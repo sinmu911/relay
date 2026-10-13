@@ -48,7 +48,8 @@ def pending_files(src: Path, app_dir: Path) -> Dict[str, bytes]:
     """바꿔야 할 파일 {이름: 새 내용}. 드라이브가 지문과 하나라도 안 맞으면 빈 것(이번엔 안 바꿈)."""
     try:
         lines = (src / "MANIFEST.sha256").read_text(encoding="utf-8").splitlines()
-    except OSError:
+    except OSError as e:
+        log.warning("드라이브 지문 파일(MANIFEST)을 못 읽어서 새 코드는 다음에: %s", e)
         return {}
     out: Dict[str, bytes] = {}
     for line in lines:
