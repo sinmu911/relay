@@ -1,0 +1,794 @@
+#!/usr/bin/env python3
+"""네이버 블로그 자동 올리기 — 맥에서 5분마다 돈다.
+
+  python naver_upload.py login               처음 한 번(또는 로그인 풀렸을 때): 네이버 로그인 창
+  python naver_upload.py run                 올릴 글이 있으면 올림 (자동 실행이 이걸 부름)
+  python naver_upload.py run --dry-run       시험: 발행 직전까지만 채우고 화면을 logs 폴더에 저장
+  python naver_upload.py run --post 경로      그 글 하나만
+  python naver_upload.py status              글마다 지금 상태 보기
+  python naver_upload.py stats               블로그 통계·애드포스트 화면을 드라이브에 저장(하루 한 번 자동)
+  python naver_upload.py edit [--dry-run]    이미 올린 글 고치기(블로그_NEO/상태/글수정_대기.json). 시험은 고친 화면만 찍고 닫음
+"""
+from __future__ import annotations
+
+import argparse
+import contextlib
+import hashlib
+import json
+import logging
+import logging.handlers
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Callable, List, Optional
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from blogpost import Post  # noqa: E402
+from github_store import GitHubStore, StoreError  # noqa: E402
+from neo_source import NeoStore  # noqa: E402
+from queue_state import (ACTION_DUPLICATE, ACTION_INVALID, ACTION_UPLOAD, DRAFTED, DUPLICATE, FAILED,  # noqa: E402
+                         INVALID, NEEDS_CHECK, PUBLISHED, PUBLISHING, RunLock, StateError, StateFile,
+                         decide, is_explicit_retry, merge_remote, now_str, recover_interrupted, taken_titles)
+from sources import BlogFeed, MultiStore, find_similar  # noqa: E402
+
+log = logging.getLogger("naver_upload")
+
+APP_HOME = Path(os.environ.get("NAVER_BLOG_UPLOADER_HOME", "~/.naver-blog-uploader")).expanduser()
+LOGIN_ALERT_EVERY = timedelta(hours=6)  # 로그인 풀림 알림을 5분마다 띄우면 시끄러워서
+DEFAULTS = {
+    "repo": "sinmu911/relay",
+    "branch": "main",
+    "blog_root": "_blog",
+    "headless": False,
+    "max_attempts": 3,
+    "max_posts_per_run": 1,   # 한꺼번에 여러 편 올리면 네이버가 이상 행동으로 볼 수 있어 5분에 한 편
+    "notify": True,
+    "sources": ["github"],    # github = 글쓰기 화면, neo = 블로그 섹션(블로그_NEO 폴더)
+    "neo_root": "",
+    "neo_category": "",
+    "check_blog_feed": True,  # 올리기 전 블로그 글 목록(RSS)에 같은 제목이 있으면 건너뜀
+    # draft = 임시저장까지만 하고 발행은 사장님이. 사장님이 발행한 게 블로그 목록에 보이면 다음 글을 임시저장.
+    # publish = 정해진 시각(when)에 프로그램이 발행까지.
+    "publish_mode": "draft",
+    "stats_daily": True,      # 하루 한 번(9시 이후) 통계·애드포스트 화면을 블로그_NEO/상태/통계/ 에 저장
+}
+SOURCES = ("github", "neo")
+
+
+class ConfigError(Exception):
+    pass
+
+
+def load_config(path: Path) -> dict:
+    if not path.exists():
+        raise ConfigError(f"설정 파일이 없어요: {path} (setup_mac.sh install 을 먼저 실행)")
+    try:
+        user = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise ConfigError(f"설정 파일을 못 읽어요: {e}") from e
+    cfg = dict(DEFAULTS)
+    cfg.update({k: v for k, v in user.items() if not k.startswith("_")})
+    cfg["github_token"] = os.environ.get("BLOG_GITHUB_TOKEN") or cfg.get("github_token", "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{3,30}", str(cfg.get("blog_id", ""))):
+        raise ConfigError("설정의 blog_id 에 네이버 블로그 아이디(영문/숫자)를 넣어 주세요")
+    sources = cfg.get("sources")
+    if not isinstance(sources, list) or not sources or any(s not in SOURCES for s in sources):
+        raise ConfigError("설정의 sources 는 [\"github\"], [\"neo\"], [\"github\", \"neo\"] 중 하나여야 해요")
+    if "github" in sources:
+        if not re.fullmatch(r"(github_pat_|ghp_)[A-Za-z0-9_]{20,}", str(cfg["github_token"])):
+            raise ConfigError("설정의 github_token 에 GitHub 토큰을 넣어 주세요")
+        if not re.fullmatch(r"[\w.-]+/[\w.-]+", str(cfg.get("repo", ""))):
+            raise ConfigError("설정의 repo 는 '주인/저장소' 형식이어야 해요")
+    if "neo" in sources and not Path(os.path.expanduser(str(cfg.get("neo_root", "")))).is_dir():
+        raise ConfigError(f"설정의 neo_root(블로그_NEO 폴더)가 없어요: {cfg.get('neo_root', '')}")
+    if cfg["publish_mode"] not in ("draft", "publish"):
+        raise ConfigError("설정의 publish_mode 는 \"draft\" 또는 \"publish\" 여야 해요")
+    for key in ("max_attempts", "max_posts_per_run"):
+        if not isinstance(cfg[key], int) or cfg[key] < 1:
+            raise ConfigError(f"설정의 {key} 는 1 이상 숫자여야 해요")
+    return cfg
+
+
+def mac_notify(title: str, message: str) -> None:
+    """맥 화면 오른쪽 위 알림. 맥이 아니거나 실패해도 올리기에는 영향 없음."""
+    if sys.platform != "darwin":
+        return
+
+    def q(s: str) -> str:
+        return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+    script = f"display notification {q(message[:200])} with title {q('네이버 블로그')} subtitle {q(title)}"
+    try:
+        subprocess.run(["osascript", "-e", script], timeout=10, check=False, capture_output=True)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+def _record(post: Post, blob_sha: str, status: str, now: datetime, prev: Optional[dict] = None,
+            **extra) -> dict:
+    prev = prev or {}
+    rec = {"status": status, "title": post.title, "hash": post.content_hash, "blob_sha": blob_sha,
+           "at": now_str(now), "retry": prev.get("retry", ""), "attempts": prev.get("attempts", 0),
+           "error": "", "url": prev.get("url", "")}
+    rec.update(extra)
+    return rec
+
+
+class Runner:
+    def __init__(self, cfg: dict, store, state_file: StateFile, lock: RunLock,
+                 publisher_factory: Callable, notify: Callable[[str, str], None],
+                 now_fn: Callable[[], datetime] = datetime.now, feed=None):
+        self.feed = feed   # 블로그에 이미 있는 글 확인(없으면 안 봄)
+        self.cfg = cfg
+        self.store = store
+        self.state_file = state_file
+        self.lock = lock
+        self.publisher_factory = publisher_factory
+        self.notify = notify
+        self.now_fn = now_fn
+
+    def run(self, dry_run: bool = False, only_path: Optional[str] = None) -> List[str]:
+        """한 바퀴. 돌려주는 값은 시험·로그용 사건 목록."""
+        if not self.lock.acquire():
+            log.info("다른 실행이 아직 돌고 있어 이번엔 건너뜀")
+            return ["locked"]
+        try:
+            return self._run(dry_run, only_path)
+        finally:
+            self.lock.release()
+
+    def _run(self, dry_run: bool, only_path: Optional[str]) -> List[str]:
+        events: List[str] = []
+        state = self.state_file.load()   # 깨졌으면 StateError — 두 번 올리기 위험이라 여기서 멈춤
+        try:
+            remote, remote_sha = self.store.get_state()
+            files = self.store.list_post_files()
+        except StoreError as e:
+            log.warning("글 목록을 못 가져와서 다음에 다시: %s", e)
+            return ["store_error"]
+        state = merge_remote(state, remote)
+        now = self.now_fn()
+        for path in recover_interrupted(state, now):
+            events.append(f"recovered:{path}")
+            self.notify("확인 필요", f"{state['posts'][path].get('title', path)} — 올리던 중 멈췄어요. 블로그를 확인해 주세요.")
+        self.state_file.save(state)
+
+        draft_mode = self.cfg.get("publish_mode", "publish") == "draft" and not dry_run
+        if draft_mode and self._waiting_for_owner(state, events):
+            self.state_file.save(state)
+            files = []   # 앞 글을 사장님이 아직 발행 안 함 — 다음 글은 그 뒤에
+
+        uploads = 0
+        with contextlib.ExitStack() as stack:
+            publisher = None
+            for f in files:
+                if only_path and f["path"] != only_path:
+                    continue
+                try:
+                    post = self.store.load_post(f)
+                except (StoreError, UnicodeDecodeError, OSError) as e:
+                    log.warning("글 파일을 못 읽음 %s: %s", f["path"], e)
+                    continue
+                rec = state["posts"].get(post.path)
+                # 시험 실행은 발행을 안 누르니 예약 시각을 기다리지 않는다(다음 주 글도 미리 시험)
+                # 임시저장 방식은 시각이 아니라 '앞 글 발행됨'이 신호라 시각을 기다리지 않는다
+                decide_now = datetime.max if (dry_run or draft_mode) else now
+                d = decide(post, rec, decide_now, taken_titles(state), self.cfg["max_attempts"])
+                log.info("%s → %s %s", post.path, d.action, d.reason)
+                if d.action == ACTION_INVALID:
+                    if not rec or rec.get("status") != INVALID or rec.get("hash") != post.content_hash:
+                        state["posts"][post.path] = _record(post, f["sha"], INVALID, now, rec, error=d.reason)
+                        self.notify("글 형식 오류", f"{post.title or post.path}: {d.reason}")
+                        events.append(f"invalid:{post.path}")
+                elif d.action == ACTION_DUPLICATE:
+                    if not rec or rec.get("status") != DUPLICATE or rec.get("hash") != post.content_hash:
+                        state["posts"][post.path] = _record(post, f["sha"], DUPLICATE, now, rec, error=d.reason)
+                        self.notify("같은 제목", f"{post.title}: {d.reason}")
+                        events.append(f"duplicate:{post.path}")
+                elif d.action == ACTION_UPLOAD:
+                    if uploads >= self.cfg["max_posts_per_run"]:
+                        events.append(f"later:{post.path}")
+                        continue
+                    if self.feed is not None:
+                        try:
+                            on_blog = find_similar(post.title, self.feed.titles())
+                        except StoreError as e:
+                            log.warning("블로그 글 목록 확인이 안 돼서 이번엔 안 올림: %s", e)
+                            events.append("feed_error")
+                            break
+                        if on_blog and not is_explicit_retry(post, rec):
+                            if not rec or rec.get("status") != DUPLICATE or rec.get("hash") != post.content_hash:
+                                reason = f"블로그에 이미 같은 제목 글이 있어요(손으로 올리신 듯): {on_blog}"
+                                state["posts"][post.path] = _record(post, f["sha"], DUPLICATE, now, rec, error=reason)
+                                self.notify("이미 올라간 글", f"{post.title} — 자동으로는 안 올렸어요.")
+                            events.append(f"on_blog:{post.path}")
+                            self.state_file.save(state)
+                            continue
+                    uploads += 1
+                    if publisher is None:
+                        try:
+                            publisher = stack.enter_context(self.publisher_factory())
+                        except Exception as e:  # noqa: BLE001 — 브라우저 못 띄움(설치 안 됨·창 열려 있음 등): 글은 손대지 않고 다음에
+                            log.error("브라우저를 못 띄워서 다음에 다시: %s", e)
+                            events.append("browser_error")
+                            break
+                    if draft_mode:
+                        events.append(self._draft_one(publisher, state, post, f["sha"]))
+                        self.state_file.save(state)   # 브라우저 닫기 전에 — 닫다 멈춰도 같은 글을 또 임시저장하지 않게
+                        break   # 한 번에 한 편만, 목록 순서대로(실패하면 다음 실행에 같은 글부터 다시)
+                    events.append(self._upload_one(publisher, state, post, f["sha"], dry_run))
+                    if events[-1].startswith("login:"):
+                        break
+                self.state_file.save(state)
+        self.state_file.save(state)
+
+        if state != remote:
+            try:
+                self.store.put_state(state, remote_sha)
+            except StoreError as e:
+                log.warning("저장소에 상태 사본을 못 씀(올리기 기록은 맥에 안전히 있음): %s", e)
+        return events
+
+    def _upload_one(self, publisher, state: dict, post: Post, blob_sha: str, dry_run: bool) -> str:
+        from naver_editor import NotLoggedInError  # 브라우저 라이브러리는 실제로 올릴 때만 불러온다
+
+        prev = state["posts"].get(post.path) or {}
+        same_try = (prev.get("status") == FAILED and prev.get("hash") == post.content_hash
+                    and prev.get("retry", "") == post.retry)
+        attempts = (prev.get("attempts", 0) if same_try else 0) + 1
+
+        def mark_publishing() -> None:
+            state["posts"][post.path] = _record(post, blob_sha, PUBLISHING, self.now_fn(), prev,
+                                                retry=post.retry, attempts=attempts)
+            try:
+                self.state_file.save(state)
+            except BaseException:
+                # 기록을 못 남겼으면 발행도 안 누른다. 메모리 기록도 되돌려 '안 누름(실패)'으로 처리되게.
+                if prev:
+                    state["posts"][post.path] = prev
+                else:
+                    state["posts"].pop(post.path, None)
+                raise
+
+        with tempfile.TemporaryDirectory(prefix="naver-blog-") as tmp:
+            try:
+                images = self.store.fetch_images(post, Path(tmp))
+                url = publisher.publish(post, images, mark_publishing, dry_run=dry_run)
+            except NotLoggedInError:
+                self._login_alert(state)
+                return f"login:{post.path}"
+            except Exception as e:  # noqa: BLE001 — 어떤 오류든 '발행을 눌렀는지'는 기록으로 판단해야 해서 다 받는다
+                if dry_run:
+                    # 시험은 발행을 안 누르니 기록(실패 횟수)을 남기지 않는다 — 진짜 발행의 재시도 기회를 안 깎게
+                    self.notify("시험 실패", f"{post.title} — {str(e)[:80]}")
+                    log.error("시험 실패 %s: %s", post.path, e)
+                    return f"dryrun_failed:{post.path}"
+                cur = state["posts"].get(post.path) or {}
+                if cur.get("status") == PUBLISHING:
+                    state["posts"][post.path] = dict(cur, status=NEEDS_CHECK, at=now_str(self.now_fn()),
+                                                     error=f"발행 뒤 확인 실패: {e}")
+                    self.notify("확인 필요", f"{post.title} — 올라갔는지 블로그를 확인해 주세요.")
+                    log.error("발행 뒤 확인 실패 %s: %s", post.path, e)
+                    return f"needs_check:{post.path}"
+                state["posts"][post.path] = _record(post, blob_sha, FAILED, self.now_fn(), prev,
+                                                    retry=post.retry, attempts=attempts, error=str(e)[:300])
+                left = self.cfg["max_attempts"] - attempts
+                self.notify("올리기 실패", f"{post.title} — {str(e)[:80]}" + (f" (다시 시도 {left}번 남음)" if left > 0 else ""))
+                log.error("올리기 실패 %s (%d번째): %s", post.path, attempts, e)
+                return f"failed:{post.path}"
+        if dry_run:
+            self.notify("시험 실행 끝", f"{post.title} — 발행 직전에서 멈췄어요(logs 폴더 화면 확인).")
+            return f"dryrun:{post.path}"
+        state["posts"][post.path] = _record(post, blob_sha, PUBLISHED, self.now_fn(), prev,
+                                            retry=post.retry, attempts=attempts, url=url)
+        self.notify("올렸어요", post.title)
+        log.info("올림 %s → %s", post.path, url)
+        return f"published:{post.path}"
+
+    def _waiting_for_owner(self, state: dict, events: List[str]) -> bool:
+        """임시저장해 둔 글이 블로그에 올라왔는지 본다. 아직 안 올라온 게 있으면 True(다음 글은 기다림)."""
+        drafted = [(p, r) for p, r in state["posts"].items() if r.get("status") == DRAFTED]
+        if not drafted:
+            return False
+        if self.feed is None:
+            return True
+        try:
+            titles = self.feed.titles()
+        except StoreError as e:
+            log.warning("블로그 글 목록 확인이 안 돼서 다음 글은 기다림: %s", e)
+            events.append("feed_error")
+            return True
+        waiting = False
+        for path, rec in drafted:
+            seen = find_similar(rec.get("title", ""), titles)
+            if seen:
+                state["posts"][path] = dict(rec, status=PUBLISHED, at=now_str(self.now_fn()), error="")
+                self.notify("발행 확인", f"{rec.get('title', '')} — 블로그에 올라온 걸 봤어요. 다음 글을 임시저장할게요.")
+                events.append(f"owner_published:{path}")
+            else:
+                waiting = True
+                events.append(f"waiting_owner:{path}")
+        return waiting
+
+    def _draft_one(self, publisher, state: dict, post: Post, blob_sha: str) -> str:
+        from naver_editor import NotLoggedInError
+
+        prev = state["posts"].get(post.path) or {}
+        same_try = (prev.get("status") == FAILED and prev.get("hash") == post.content_hash
+                    and prev.get("retry", "") == post.retry)
+        attempts = (prev.get("attempts", 0) if same_try else 0) + 1
+        with tempfile.TemporaryDirectory(prefix="naver-blog-") as tmp:
+            try:
+                images = self.store.fetch_images(post, Path(tmp))
+                publisher.save_draft(post, images)
+                confirmed = getattr(publisher, "last_draft_confirmed", True)
+            except NotLoggedInError:
+                self._login_alert(state)
+                return f"login:{post.path}"
+            except Exception as e:  # noqa: BLE001
+                state["posts"][post.path] = _record(post, blob_sha, FAILED, self.now_fn(), prev,
+                                                    retry=post.retry, attempts=attempts, error=str(e)[:300])
+                self.notify("임시저장 실패", f"{post.title} — {str(e)[:80]}")
+                log.error("임시저장 실패 %s (%d번째): %s", post.path, attempts, e)
+                return f"failed:{post.path}"
+        state["posts"][post.path] = _record(post, blob_sha, DRAFTED, self.now_fn(), prev,
+                                            retry=post.retry, attempts=attempts)
+        notes = getattr(publisher, "notes", None) or []
+        if notes:
+            self.notify("앱에서 볼 것", f"{post.title} — " + " · ".join(notes)[:150] + " (앱에서 직접 붙여 주세요)")
+        if confirmed:
+            self.notify("임시저장했어요", f"{post.title} — 네이버 블로그 앱 [글쓰기] → 임시저장 글에서 확인하고 발행해 주세요.")
+        else:
+            self.notify("임시저장 확인 필요", f"{post.title} — 저장 표시를 못 봤어요. 앱 임시저장 글에 있는지 봐 주세요(없으면 알려 주세요).")
+        log.info("임시저장 %s", post.path)
+        return f"drafted:{post.path}"
+
+    def _login_alert(self, state: dict) -> None:
+        meta = state.setdefault("meta", {})
+        last = meta.get("login_alert_at", "")
+        now = self.now_fn()
+        try:
+            recent = bool(last) and now - datetime.strptime(last, "%Y-%m-%d %H:%M:%S") < LOGIN_ALERT_EVERY
+        except ValueError:
+            recent = False
+        if not recent:
+            meta["login_alert_at"] = now_str(now)
+            self.notify("로그인 필요", "네이버 로그인이 풀렸어요. 터미널에서 login 을 다시 해 주세요.")
+        log.error("네이버 로그인이 풀려서 올리기를 멈춤")
+
+
+def print_status(cfg: dict, store, state_file: StateFile) -> None:
+    state = merge_remote(state_file.load(), store.get_state()[0])
+    now = datetime.now()
+    for f in store.list_post_files():
+        post = store.load_post(f)
+        rec = state["posts"].get(post.path) or {}
+        d = decide(post, rec, now, taken_titles(state), cfg["max_attempts"])
+        extra = rec.get("url") or rec.get("error") or ""
+        print(f"{post.path}\n  제목: {post.title}\n  기록: {rec.get('status', '-')} {rec.get('at', '')}"
+              f"\n  다음 실행: {d.action} {d.reason}\n  {extra}".rstrip())
+
+
+def setup_logging(verbose: bool) -> None:
+    (APP_HOME / "logs").mkdir(parents=True, exist_ok=True)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    fh = logging.handlers.RotatingFileHandler(APP_HOME / "logs" / "uploader.log", maxBytes=1_000_000,
+                                              backupCount=3, encoding="utf-8")
+    fh.setFormatter(fmt)
+    sh = logging.StreamHandler()
+    sh.setFormatter(fmt)
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG if verbose else logging.INFO)
+    root.addHandler(fh)
+    root.addHandler(sh)
+
+
+def do_login(config_path: Path, login_fn=None, publisher_cls=None) -> int:
+    """로그인 창 → 창을 닫은 뒤 다시 열어서 로그인이 남았는지 진짜 올릴 때와 같은 길로 확인."""
+    from playwright.sync_api import Error as PlaywrightError
+
+    from naver_editor import EditorError, NaverPublisher, interactive_login
+    login_fn = login_fn or interactive_login
+    publisher_cls = publisher_cls or NaverPublisher
+    status, session_only = login_fn(APP_HOME / "profile")
+    if status == "timeout":
+        print("시간 안에 로그인이 안 됐어요. 다시 해 주세요.")
+        return 1
+    try:
+        cfg = load_config(config_path)
+    except ConfigError as e:
+        print(f"설정 파일 문제로 로그인 저장 확인을 못 했어요: {e}")
+        return 2
+    print("로그인이 저장됐는지 확인하는 중이에요(창이 한 번 더 잠깐 떠요)...")
+    try:
+        with publisher_cls(cfg["blog_id"], APP_HOME / "profile", APP_HOME / "logs",
+                           headless=bool(cfg["headless"])) as pub:
+            ok = pub.check_login()
+    except (EditorError, PlaywrightError) as e:
+        print(f"확인을 끝까지 못 했어요({str(e)[:100]}). test 로 확인해 주세요.")
+        return 1
+    if ok:
+        print("✅ 로그인 저장 확인 — 창을 닫아도 로그인이 남아요. 다음: test")
+        return 0
+    print("❌ 창을 닫으니 로그인이 풀렸어요.")
+    if session_only:
+        print("   '로그인 상태 유지'가 꺼진 채로 로그인돼서 그래요. login 을 다시 하고,")
+        print("   아이디 넣기 전에 '로그인 상태 유지'를 꼭 체크해 주세요.")
+    elif status == "ok":
+        print("   로그인 쿠키는 저장됐는데 다시 열었을 때 로그인 화면이 떴어요.")
+        print("   logs 폴더의 loginfail 사진과 'bash ~/.naver-blog-uploader/app/setup_mac.sh log' 결과를 보내 주세요.")
+    else:
+        print("   로그인을 끝까지 마치기 전에 창이 닫혔어요. login 을 다시 해 주세요.")
+    return 1
+
+
+def run_stats(cfg: dict, state_file: StateFile, force: bool = False, now_fn=datetime.now,
+              ctx_factory=None, feed=None) -> bool:
+    """하루 한 번 통계 화면 저장. 실패해도 올리기에는 영향 없음."""
+    now = now_fn()
+    lock = RunLock(APP_HOME / "run.lock")
+    if not lock.acquire():
+        return False
+    try:
+        state = state_file.load()
+        meta = state.setdefault("meta", {})
+        if not force and (now.hour < 9 or meta.get("stats_date") == now.strftime("%Y-%m-%d")):
+            return False
+        out_dir = Path(os.path.expanduser(str(cfg["neo_root"]))) / "상태" / "통계"
+        try:
+            from stats_capture import capture
+            if ctx_factory:
+                results = capture(ctx_factory(), cfg["blog_id"], out_dir)
+            else:
+                from playwright.sync_api import sync_playwright
+                with sync_playwright() as p:
+                    ctx = p.chromium.launch_persistent_context(str(APP_HOME / "profile"),
+                                                               headless=bool(cfg["headless"]), locale="ko-KR",
+                                                               viewport={"width": 1280, "height": 900})
+                    try:
+                        results = capture(ctx, cfg["blog_id"], out_dir)
+                    finally:
+                        ctx.close()
+        except Exception as e:  # noqa: BLE001
+            log.warning("통계 화면 저장 실패: %s", e)
+            return False
+        meta["stats_date"] = now.strftime("%Y-%m-%d")
+        try:
+            import scorecard
+            try:
+                posts = (feed or BlogFeed(cfg["blog_id"])).posts()
+            except StoreError as e:
+                log.warning("글 성적표: 블로그 글 목록을 못 받음: %s", e)
+                posts = []
+            n = scorecard.update(meta, Path(os.path.expanduser(str(cfg["neo_root"]))), out_dir, posts, now,
+                                 cfg["blog_id"])
+            log.info("글 성적표 %d줄", n)
+        except Exception as e:  # noqa: BLE001 — 성적표가 안 돼도 통계 저장은 그대로
+            log.warning("글 성적표 실패: %s", e)
+        state_file.save(state)
+        log.info("통계 화면 저장: %s", results)
+        return True
+    finally:
+        lock.release()
+
+
+def run_login_check(cfg: dict, state_file: StateFile, publisher_factory, notify, force: bool = False,
+                    now_fn=datetime.now) -> Optional[dict]:
+    """하루 한 번(또는 로그인이 풀린 직후) 로그인 점검 기록. 실패해도 올리기에는 영향 없음."""
+    import login_watch
+    lock = RunLock(APP_HOME / "run.lock")
+    if not lock.acquire():
+        return None
+    try:
+        state = state_file.load()
+        try:
+            entry = login_watch.check(cfg, state, publisher_factory, notify, now_fn(), force=force)
+        except Exception as e:  # noqa: BLE001
+            log.warning("로그인 점검 실패: %s", e)
+            return None
+        if entry is not None:
+            state_file.save(state)
+        return entry
+    finally:
+        lock.release()
+
+
+EDIT_SPEC_REL = Path("상태") / "글수정_대기.json"
+
+
+EDIT_MISSING = ("못 찾음", "안 바뀜", "그림 파일 없음", "그림 넣을 자리")
+
+
+def load_edit_specs(path: Path) -> List[dict]:
+    """글수정_대기.json — 글 하나({"id", "log_no", "replace", ...}) 또는 여러 개({"edits": [ ... ]})."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    specs = data.get("edits") if isinstance(data, dict) and "edits" in data else [data]
+    if not isinstance(specs, list):
+        raise ValueError("edits 는 목록이어야 해요")
+    for spec in specs:
+        if not isinstance(spec, dict) or not spec.get("id") or not re.fullmatch(r"\d{6,}", str(spec.get("log_no", ""))):
+            raise ValueError(f"id·log_no 가 없거나 이상해요: {str(spec)[:80]}")
+    ids = [spec["id"] for spec in specs]
+    if len(ids) != len(set(ids)):
+        raise ValueError("같은 id 가 두 번 있어요")
+    return specs
+
+
+def run_edit(cfg: dict, state_file: StateFile, publisher_factory, notify, dry_run: bool = False,
+             plan: Optional[dict] = None, results: Optional[list] = None) -> int:
+    """글수정_대기.json 의 글들을 차례로 고친다. 같은 id 는 한 번만(기록은 state meta.edits_done).
+    한 글이 어긋나면 그 글만 발행하지 않고 다음 글로 넘어간다.
+    plan={id: "dry"|"real"} 이면 그 글들만 그 방식으로(자동 실행용), results 에 글마다 결과를 담는다."""
+    from naver_editor import EditorError, NotLoggedInError, apply_edits, publish_edit
+    root = Path(os.path.expanduser(str(cfg["neo_root"])))
+    spec_path = root / EDIT_SPEC_REL
+    if not spec_path.exists():
+        print(f"고칠 글 목록이 없어요: {spec_path}")
+        return 1
+    try:
+        specs = load_edit_specs(spec_path)
+    except (OSError, ValueError) as e:
+        print(f"고칠 글 목록을 못 읽어요: {e}")
+        return 1
+    lock = RunLock(APP_HOME / "run.lock")
+    if not lock.acquire():
+        print("자동 실행이 돌고 있어요. 1~2분 뒤에 다시 해 주세요.")
+        return 1
+    failed = 0
+    try:
+        state = state_file.load()
+        done_ids = state.setdefault("meta", {}).setdefault("edits_done", {})
+        if plan is not None:
+            todo = [spec for spec in specs if spec["id"] in plan and spec["id"] not in done_ids]
+        else:
+            todo = [spec for spec in specs if dry_run or spec["id"] not in done_ids]
+        for spec in specs:
+            if plan is None and spec not in todo:
+                print(f"[{spec.get('name', spec['id'])}] 이미 고친 글이라 건너뜀({done_ids[spec['id']]})")
+        if not todo:
+            return 0
+        with publisher_factory() as pub:
+            for spec in todo:
+                name = spec.get("name", spec["id"])
+                spec_dry = dry_run or (plan is not None and plan.get(spec["id"]) == "dry")
+                res = {"id": spec["id"], "name": name, "mode": "시험" if spec_dry else "발행", "done": [], "shot": ""}
+                if results is not None:
+                    results.append(res)
+                print(f"[{name}]")
+                images = {}
+                img_dir = root / spec.get("image_dir", "")
+                for item in spec.get("insert_images", []):
+                    p = img_dir / item["file"]
+                    if p.is_file():
+                        images[item["file"]] = p
+                try:
+                    page, frame, done = apply_edits(pub, spec["log_no"], spec, images)
+                except NotLoggedInError:
+                    raise
+                except Exception as e:  # noqa: BLE001 — 이 글 화면이 안 열려도 다음 글은 계속
+                    print(f" 수정 화면에서 오류(발행 안 함): {str(e)[:150]}")
+                    res["status"] = f"오류: {str(e)[:200]}"
+                    failed += 1
+                    continue
+                res["done"] = done
+                try:
+                    for line in done:
+                        print(" -", line)
+                    shot = pub._shot(page, "edit")
+                    res["shot"] = str(shot or "")
+                    missing = any(d.startswith(EDIT_MISSING) for d in done)
+                    if spec_dry:
+                        print(f" 시험 끝 — 발행 안 눌렀어요. 화면 사진: {shot}")
+                        res["status"] = "시험 끝(못 한 것 있음)" if missing else "시험 끝(다 됨)"
+                        if missing:
+                            failed += 1
+                        continue
+                    if missing:
+                        print(" 못 한 게 있어서 이 글은 발행 안 했어요. 위 줄을 보내 주세요.")
+                        res["status"] = "못 한 게 있어 발행 안 함"
+                        failed += 1
+                        continue
+                    try:
+                        ok = publish_edit(pub, page, frame, spec["log_no"])
+                    except EditorError as e:     # 발행 창이 안 열림 — [발행] 확인은 안 눌렀다
+                        print(f" 발행 창이 안 열려서 발행 안 했어요: {str(e)[:100]}")
+                        res["status"] = f"발행 창 안 열림(발행 안 함): {str(e)[:100]}"
+                        failed += 1
+                        continue
+                    except Exception as e:  # noqa: BLE001 — [발행] 누른 뒤 오류: 올라갔을 수 있다
+                        print(f" 발행 누른 뒤 오류: {str(e)[:100]}")
+                        ok = False
+                    # 결과 화면을 못 봤어도 '했음'으로 남긴다 — 다시 돌리면 같은 글자를 또 덧붙일 수 있어서
+                    done_ids[spec["id"]] = now_str(datetime.now()) + ("" if ok else " (발행 뒤 확인 못 함)")
+                    state_file.save(state)
+                    res["status"] = "발행 끝" if ok else "발행 눌렀는데 결과 못 봄 — 블로그 확인 필요"
+                    if ok:
+                        notify("글 수정했어요", name)
+                        print(" ✅ 수정 발행 끝")
+                    else:
+                        failed += 1
+                        notify("글 수정 확인 필요", f"{name} — 발행 뒤 화면을 못 봤어요. 블로그를 확인해 주세요.")
+                        print(" 발행은 눌렀는데 결과 화면을 못 봤어요. 블로그에서 확인해 주세요(다시 돌려도 이 글은 안 고침).")
+                finally:
+                    try:
+                        page.close()
+                    except Exception:  # noqa: BLE001 — 발행 뒤 화면이 이미 닫혔을 수 있음
+                        pass
+        return 1 if failed else 0
+    finally:
+        lock.release()
+
+
+EDIT_RESULT_REL = Path("상태") / "글수정_결과.json"
+EDIT_MAX_FAILS = 2
+
+
+def edit_spec_hash(spec: dict) -> str:
+    """승인 표시(approved)를 뺀 수정 내용의 지문 — 시험한 것과 똑같은 내용만 승인으로 발행되게."""
+    body = {k: v for k, v in spec.items() if k != "approved"}
+    return hashlib.sha256(json.dumps(body, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+
+
+def auto_edit(cfg: dict, state_file: StateFile, publisher_factory, notify) -> str:
+    """5분 자동 실행 끝에 부른다(사장님 요청 10-12: 맥에서 안 치게).
+    새 수정 내용은 시험만 하고 결과를 상태/글수정_결과.json 에 남긴다(발행 안 함).
+    블로그 보조가 결과를 보고 그 글에 "approved": "<지문>" 을 적으면 다음 바퀴에 발행까지.
+    지문이 시험한 내용과 다르면(내용이 바뀌면) 다시 시험부터."""
+    from naver_editor import NotLoggedInError
+    root = Path(os.path.expanduser(str(cfg["neo_root"])))
+    if not (root / EDIT_SPEC_REL).exists():
+        return ""
+    try:
+        specs = load_edit_specs(root / EDIT_SPEC_REL)
+    except (OSError, ValueError) as e:
+        log.warning("글수정_대기.json 을 못 읽음: %s", e)
+        return "edit_bad_spec"
+    meta = state_file.load().get("meta", {})
+    done, tested, fails = meta.get("edits_done", {}), meta.get("edits_tested", {}), meta.get("edit_fails", {})
+    plan, hashes = {}, {}
+    for spec in specs:
+        h = hashes[spec["id"]] = edit_spec_hash(spec)
+        if spec["id"] in done or fails.get(f"{spec['id']}:{h}", 0) >= EDIT_MAX_FAILS:
+            continue
+        t = tested.get(spec["id"]) or {}
+        if t.get("hash") != h:
+            plan[spec["id"]] = "dry"
+        elif t.get("ok") and spec.get("approved") == h:
+            plan[spec["id"]] = "real"
+    if not plan:
+        return ""
+    results: list = []
+    try:
+        run_edit(cfg, state_file, publisher_factory, notify, plan=plan, results=results)
+    except NotLoggedInError:
+        log.error("네이버 로그인이 풀려서 글 수정을 못 함")
+        return "edit_login"
+    lock = RunLock(APP_HOME / "run.lock")
+    if not lock.acquire():
+        return "locked"
+    try:
+        state = state_file.load()
+        meta = state.setdefault("meta", {})
+        for res in results:
+            h = res["hash"] = hashes[res["id"]]
+            if res["mode"] == "시험":
+                ok = res.get("status") == "시험 끝(다 됨)"
+                meta.setdefault("edits_tested", {})[res["id"]] = {"hash": h, "ok": ok}
+            if res.get("status", "").startswith(("오류", "발행 창")) or "status" not in res:
+                key = f"{res['id']}:{h}"
+                meta.setdefault("edit_fails", {})[key] = meta.get("edit_fails", {}).get(key, 0) + 1
+        state_file.save(state)
+    finally:
+        lock.release()
+    try:
+        shots = root / "상태" / "글수정_화면"
+        shots.mkdir(parents=True, exist_ok=True)
+        for res in results:
+            if res.get("shot") and Path(res["shot"]).is_file():
+                shutil.copyfile(res["shot"], shots / f"{res['id']}.png")
+        (root / EDIT_RESULT_REL).write_text(json.dumps(
+            {"_설명": "자동 실행의 글 수정 결과. 시험 끝(다 됨)이면 블로그 보조가 그 글에 \"approved\": hash 를 적어 발행.",
+             "at": now_str(datetime.now()), "results": results}, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError as e:
+        log.warning("글 수정 결과를 드라이브에 못 씀: %s", e)
+    log.info("글 수정 자동: %s", [(r["id"], r["mode"], r.get("status")) for r in results])
+    return "edit_" + ",".join(f"{r['id']}:{r['mode']}" for r in results)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    ap = argparse.ArgumentParser(description="네이버 블로그 자동 올리기")
+    ap.add_argument("--config", type=Path, default=APP_HOME / "config.json")
+    ap.add_argument("-v", "--verbose", action="store_true")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("login", help="네이버 로그인 창 열기")
+    r = sub.add_parser("run", help="올릴 글이 있으면 올리기")
+    r.add_argument("--dry-run", action="store_true", help="발행 직전까지만(시험)")
+    r.add_argument("--post", help="이 글 하나만 (예: _blog/posts/2026-10-09-120000.md)")
+    sub.add_parser("status", help="글별 상태")
+    sub.add_parser("stats", help="통계·애드포스트 화면 저장")
+    e = sub.add_parser("edit", help="이미 올린 글 고치기")
+    e.add_argument("--dry-run", action="store_true", help="고친 화면 사진만 찍고 발행 안 함")
+    args = ap.parse_args(argv)
+    setup_logging(args.verbose)
+
+    if args.cmd == "login":
+        return do_login(args.config)
+
+    try:
+        cfg = load_config(args.config)
+    except ConfigError as e:
+        log.error("%s", e)
+        return 2
+    if args.cmd == "run" and not args.dry_run and cfg.get("self_update", True):
+        # 드라이브에 새 코드가 올라왔으면 바꾸고 이번 바퀴는 끝 — 다음 바퀴(5분 뒤)부터 새 코드로
+        import self_update
+        lock = RunLock(APP_HOME / "run.lock")
+        if lock.acquire():
+            try:
+                changed = self_update.run(APP_HOME, Path(__file__).resolve().parent)
+            except OSError as e:
+                log.warning("자동 업데이트 실패(올리기는 지금 코드로 계속): %s", e)
+                changed = []
+            finally:
+                lock.release()
+            if changed:
+                return 0
+    stores = []
+    if "github" in cfg["sources"]:
+        stores.append(GitHubStore(cfg["repo"], cfg["branch"], cfg["github_token"], cfg["blog_root"],
+                                  cache_dir=APP_HOME / "cache"))
+    if "neo" in cfg["sources"]:
+        stores.append(NeoStore(cfg["neo_root"], default_category=cfg["neo_category"]))
+    store = MultiStore(stores)
+    state_file = StateFile(APP_HOME / "state.json")
+
+    def notify(title: str, message: str) -> None:
+        log.info("[알림] %s: %s", title, message)
+        if cfg["notify"]:
+            mac_notify(title, message)
+
+    try:
+        if args.cmd == "status":
+            print_status(cfg, store, state_file)
+            return 0
+
+        def publisher_factory():
+            from naver_editor import NaverPublisher
+            return NaverPublisher(cfg["blog_id"], APP_HOME / "profile", APP_HOME / "logs",
+                                  headless=bool(cfg["headless"]))
+
+        feed = BlogFeed(cfg["blog_id"]) if cfg["check_blog_feed"] else None
+        runner = Runner(cfg, store, state_file, RunLock(APP_HOME / "run.lock"), publisher_factory, notify,
+                        feed=feed)
+        if args.cmd == "stats":
+            return 0 if run_stats(cfg, state_file, force=True) else 1
+        if args.cmd == "edit":
+            return run_edit(cfg, state_file, publisher_factory, notify, dry_run=args.dry_run)
+        events = runner.run(dry_run=args.dry_run, only_path=args.post)
+        log.info("끝: %s", ", ".join(events) or "올릴 글 없음")
+        if "neo" in cfg["sources"] and not args.dry_run and "locked" not in events:
+            if cfg.get("login_check", True):
+                run_login_check(cfg, state_file, publisher_factory, notify,
+                                force=any(e.startswith("login:") for e in events))
+            if cfg.get("auto_edit", True):
+                auto_edit(cfg, state_file, publisher_factory, notify)
+            if cfg["stats_daily"]:
+                run_stats(cfg, state_file, feed=feed)
+        return 0
+    except StateError as e:
+        notify("멈춤", "올리기 기록 파일이 깨져서 멈췄어요. 로그를 확인해 주세요.")
+        log.error("%s", e)
+        return 2
+    except StoreError as e:
+        log.error("%s", e)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
