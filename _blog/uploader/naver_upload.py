@@ -339,6 +339,9 @@ class Runner:
                 return f"failed:{post.path}"
         state["posts"][post.path] = _record(post, blob_sha, DRAFTED, self.now_fn(), prev,
                                             retry=post.retry, attempts=attempts)
+        notes = getattr(publisher, "notes", None) or []
+        if notes:
+            self.notify("앱에서 볼 것", f"{post.title} — " + " · ".join(notes)[:150] + " (앱에서 직접 붙여 주세요)")
         if confirmed:
             self.notify("임시저장했어요", f"{post.title} — 네이버 블로그 앱 [글쓰기] → 임시저장 글에서 확인하고 발행해 주세요.")
         else:

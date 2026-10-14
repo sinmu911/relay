@@ -42,6 +42,12 @@ SELECTORS = {
     "category_open": ["button[class*='selectbox_button']"],
     "category_list": "[class*='option_list']",
     "tag_input": ["#tag-input", "input[placeholder*='태그']"],
+    # 지도 장소 넣기 — 진짜 화면에서 아직 못 본 부분이라 이름표(글자)로도 찾는다. 안 되면 건너뛰고 알림(글은 계속)
+    "place_button": ["button.se-map-toolbar-button", "button[data-name='map']", "button:has-text('장소')"],
+    "place_input": ["input[placeholder*='장소']", "input[placeholder*='검색']", ".se-popup input[type='text']"],
+    "place_add": ["button:has-text('추가')"],
+    "place_ok": ["button:has-text('확인')"],
+    "place_component": ".se-component.se-placesMap, .se-component.se-map",
     "save_draft": ["button[class*='save_btn']", "button[data-click-area='tpb.save']", "button:has-text('저장')"],   # 상단 [저장]
 }
 
@@ -130,6 +136,7 @@ class NaverPublisher:
         self._pw = None
         self._ctx = None
         self._dialogs: List[str] = []
+        self.notes: List[str] = []   # 글은 올렸지만 사람이 볼 것(예: 장소를 못 붙임)
 
     def __enter__(self) -> "NaverPublisher":
         self._pw = sync_playwright().start()
@@ -157,6 +164,7 @@ class NaverPublisher:
         """올린 글 주소를 돌려준다. dry_run 이면 발행 창까지만 채우고 None."""
         page = self._ctx.new_page()
         self._dialogs = []
+        self.notes = []
         page.on("dialog", self._on_dialog)
         clicked_final = False
         try:
@@ -198,6 +206,7 @@ class NaverPublisher:
         """발행은 누르지 않고 [저장](임시저장)까지만. 돌려주는 값은 확인용 화면 사진."""
         page = self._ctx.new_page()
         self._dialogs = []
+        self.notes = []
         page.on("dialog", self._on_dialog)
         try:
             frame = self._open_editor(page)
@@ -327,6 +336,8 @@ class NaverPublisher:
         for seg in segments:
             if seg.kind == "image":
                 self._insert_image(page, frame, images[seg.image_path])
+            elif seg.kind == "place":
+                self._insert_place(page, frame, seg.text)
             else:
                 self._insert_html(page, frame, seg)
 
@@ -408,6 +419,43 @@ class NaverPublisher:
         if not _wait_until(frame, lambda: img.evaluate(IMG_READY_JS), T_IMAGE_MS):
             raise EditorError(f"사진 올리기가 안 끝났어요: {path.name}")
         page.wait_for_timeout(800)  # 사진 서버 업로드가 화면 표시보다 조금 늦게 끝나는 것 대비
+
+    def _insert_place(self, page: Page, frame: Frame, name: str) -> bool:
+        """네이버 지도 장소 하나를 붙인다. 못 붙여도 글은 계속 올린다(사장님이 앱에서 붙이면 됨) — 알림에 남김."""
+        comps = frame.locator(SELECTORS["place_component"])
+        try:
+            self._focus_end(page, frame)
+            before = comps.count()
+            btn = _first_visible(frame, SELECTORS["place_button"], T_SHORT_MS)
+            if not btn:
+                raise EditorError("장소 버튼을 못 찾음")
+            btn.click()
+            box = _first_visible(frame, SELECTORS["place_input"], 8000)
+            if not box:
+                raise EditorError("장소 검색 칸을 못 찾음")
+            box.click()
+            page.keyboard.insert_text(name)
+            page.keyboard.press("Enter")
+            add = _first_visible(frame, SELECTORS["place_add"], 8000)
+            if not add:
+                raise EditorError("검색 결과가 없음")
+            add.click()
+            ok = _first_visible(frame, SELECTORS["place_ok"], T_SHORT_MS)
+            if not ok:
+                raise EditorError("확인 버튼을 못 찾음")
+            ok.click()
+            if not _wait_until(frame, lambda: comps.count() > before, 8000):
+                raise EditorError("본문에 지도가 안 보임")
+            return True
+        except (EditorError, PlaywrightError) as e:
+            shot = self._shot(page, "place")
+            log.warning("장소 '%s' 못 붙임(글은 계속): %s · 화면 %s", name, e, shot)
+            self.notes.append(f"장소 '{name}' 못 붙임")
+            try:
+                page.keyboard.press("Escape")
+            except PlaywrightError:
+                pass
+            return False
 
     def _verify_body(self, frame: Frame, post: Post) -> None:
         """발행 전에 글·사진이 다 들어갔는지 확인 — 빠진 채로 올라가는 것 방지."""

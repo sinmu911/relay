@@ -41,7 +41,7 @@ MD_EXTENSIONS = ["nl2br", "sane_lists", "fenced_code", "tables"]  # nl2br: 줄�
 
 @dataclass
 class Segment:
-    kind: str                # "html" 또는 "image"
+    kind: str                # "html" · "image" · "place"(네이버 지도 장소, text 에 장소 이름)
     html: str = ""
     text: str = ""           # html 의 글자만(붙여넣기 확인용)
     image_path: str = ""     # 블로그 폴더 기준 경로 (images/xxx.jpg)

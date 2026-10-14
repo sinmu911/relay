@@ -365,3 +365,32 @@ def test_misaimed_edit_is_caught_by_whole_doc_check(base_url, tmp_path):
         finally:
             naver_editor._select_like_person = real
     assert done[0].startswith("안 바뀜")
+
+
+def _place_post(tmp_path):
+    from neo_source import NeoStore
+    from test_neo_source import WANSEONG, make_neo
+    root = make_neo(tmp_path / "neo", text=WANSEONG.replace("【그림 1】", "【장소】 묘반 유야 에비스\n\n【그림 1】", 1))
+    st = NeoStore(root)
+    post = st.load_post(st.list_post_files()[0])
+    return post, st.fetch_images(post, tmp_path)
+
+
+def test_place_is_attached_in_order(base_url, tmp_path):
+    post, images = _place_post(tmp_path)
+    Handler.submissions.clear()
+    with publisher(tmp_path, f"{base_url}/editor.html") as pub:
+        assert pub.publish(post, images, lambda: None)
+        assert pub.notes == []
+    comps = [c for c in Handler.submissions[-1]["comps"] if "img" in c or "place" in c or c.get("text")]
+    kinds = ["img" if "img" in c else "place:" + c["place"] if "place" in c else "text" for c in comps]
+    assert kinds == ["img", "text", "place:묘반 유야 에비스", "img", "text"]
+
+
+def test_place_not_found_is_skipped_with_note(base_url, tmp_path):
+    post, images = _place_post(tmp_path)
+    Handler.submissions.clear()
+    with publisher(tmp_path, f"{base_url}/editor.html?noplace=1") as pub:
+        assert pub.publish(post, images, lambda: None)      # 장소 없이도 글은 올라감
+        assert pub.notes == ["장소 '묘반 유야 에비스' 못 붙임"]
+    assert not any("place" in c for c in Handler.submissions[-1]["comps"])

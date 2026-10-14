@@ -40,6 +40,8 @@ MIRROR_REL = "상태/자동발행_기록.json"
 BLUE = "#0075c8"
 SECTION_RE = re.compile(r"^={5,}\n([^\n=][^\n]*)\n={5,}$", re.M)   # 블로그 섹션 도구들과 같은 머리줄 규칙
 IMAGE_LINE_RE = re.compile(r"^\s*【그림\s*(\w+)】\s*(\S+)\s*$")
+# 【장소】 네이버 지도에 나오는 이름 — 글에 지도 장소를 붙인다(장소 페이지 '블로그 리뷰'에 글이 걸리게, 10-14)
+PLACE_LINE_RE = re.compile(r"^\s*【장소】\s*(\S.*?)\s*$")
 PREAMBLE_FOLDER_RE = re.compile(r"폴더\s*`([^`]+)`")
 WHEN_SHORT_RE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})\s*(?:\([^)]*\))?\s*(\d{1,2}):(\d{2})\s*$")
 WHEN_FULL_RE = re.compile(r"^\s*(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})")
@@ -144,6 +146,11 @@ def build_segments(body: str, errors: List[str]) -> List[Segment]:
             segments.append(Segment(kind="html", html=html, text=html_to_text(html)))
 
     for line in body.split("\n"):
+        pm = PLACE_LINE_RE.match(line)
+        if pm:
+            flush()
+            segments.append(Segment(kind="place", text=pm.group(1)[:60]))
+            continue
         m = IMAGE_LINE_RE.match(line)
         if m:
             flush()

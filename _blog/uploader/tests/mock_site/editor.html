@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko"><head><meta charset="utf-8"><title>모의 스마트에디터</title>
-<style>.se-text-paragraph{min-height:20px;border:1px dashed #ccc;padding:4px}.layer{display:none}.layer.on{display:block}
+<style>.se-text-paragraph{min-height:20px;border:1px dashed #ccc;padding:4px}.layer{display:none}.layer.on{display:block}.placepop{display:none}.placepop.on{display:block}
 .option_list__y{display:none}.option_list__y.on{display:block}.se-component.sel{outline:2px solid blue}</style></head>
 <body>
 <!-- 시험용: 네이버 스마트에디터 ONE 과 같은 클래스 이름 구조만 흉내 냄 -->
@@ -9,6 +9,9 @@
 <header>
   <button class="se-image-toolbar-button" onclick="document.getElementById('file').click()">사진</button>
   <input type="file" id="file" style="display:none" accept="image/*">
+  <button class="se-map-toolbar-button" onclick="document.getElementById('placepop').classList.add('on')">장소</button>
+  <div class="placepop" id="placepop"><input placeholder="장소 검색" id="placeq"><ul id="placeres"></ul>
+    <button onclick="placeOk()">확인</button></div>
   <button class="save_btn__q" onclick="saveDraft(this)">저장 <span>0</span></button>
   <button class="publish_btn__abc" onclick="document.querySelector('.layer').classList.add('on')">발행</button>
   <div class="layer">
@@ -36,6 +39,22 @@ if (Q.get('owncaret') === '1') {
 // 진짜 네이버처럼: 스크립트로 잡은 선택에서 지우기 키가 안 먹음
 if (Q.get('nodelete') === '1') document.getElementById('doc').addEventListener('keydown', e => {
   if (e.key === 'Backspace' || e.key === 'Delete') e.preventDefault(); }, true);
+// 장소: 검색(Enter) → 결과마다 [추가] → [확인] 하면 지도 칸이 본문 끝에. noplace=1 이면 결과 없음
+let placePicked = null;
+document.getElementById('placeq').addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || Q.get('noplace') === '1') return;
+  const li = document.createElement('li'); li.textContent = e.target.value + ' ';
+  const b = document.createElement('button'); b.textContent = '추가'; b.onclick = () => { placePicked = e.target.value; };
+  li.appendChild(b); document.getElementById('placeres').appendChild(li);
+});
+function placeOk(){
+  if (placePicked) { const c = document.createElement('div'); c.className = 'se-component se-placesMap';
+    c.dataset.place = placePicked; c.textContent = placePicked; document.getElementById('doc').appendChild(c);
+    document.getElementById('doc').appendChild(textComp()); }
+  placePicked = null; document.getElementById('placeres').innerHTML = ''; document.getElementById('placeq').value = '';
+  document.getElementById('placepop').classList.remove('on');
+}
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('placepop').classList.remove('on'); });
 function pick(c){ category = c; document.querySelector('.option_list__y').classList.remove('on'); }
 document.getElementById('tag-input').addEventListener('keydown', e => {
   if (e.key === 'Enter' && e.target.value.trim()) { tags.push(e.target.value.trim()); e.target.value = ''; }
@@ -75,7 +94,8 @@ async function saveDraft(b){
 }
 async function submitPost(){
   const comps = [...document.querySelectorAll('#doc .se-component:not(.se-documentTitle)')].map(c =>
-    c.classList.contains('se-image') ? {img: c.dataset.name} : {text: c.innerText.trim(), html: c.innerHTML});
+    c.classList.contains('se-image') ? {img: c.dataset.name} : c.classList.contains('se-placesMap') ? {place: c.dataset.place}
+    : {text: c.innerText.trim(), html: c.innerHTML});
   await fetch('/submit', {method: 'POST', body: JSON.stringify({
     title: document.querySelector('.se-documentTitle').innerText.trim(), comps, tags, category})});
   location.href = '/post.html?blogId=me&logNo=223344556677';

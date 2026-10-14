@@ -304,3 +304,13 @@ def test_series_numbers_are_not_similar():
     t3 = "[두바이 ③] 아부다비 하루 코스 총정리 동선과 입장료"
     assert find_similar(t3.replace("③", "④"), [t3]) is None
     assert find_similar(t3, [t3]) == t3
+
+
+def test_place_line_becomes_place_segment(tmp_path):
+    text = WANSEONG.replace("【그림 1】", "【장소】 아부다비 그랜드 모스크\n\n【그림 1】", 1)
+    root = make_neo(tmp_path, text=text)
+    _, _, post = load_one(root)
+    kinds = [s.kind for s in post.segments]
+    assert "place" in kinds and kinds.index("place") < kinds.index("image", 1)
+    assert [s.text for s in post.segments if s.kind == "place"] == ["아부다비 그랜드 모스크"]
+    assert "【장소】" not in "".join(s.html for s in post.segments)
