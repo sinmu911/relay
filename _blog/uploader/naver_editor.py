@@ -91,6 +91,9 @@ class AmbiguousPublishError(Exception):
     """[발행] 확인을 누른 뒤 결과를 못 봤다 — 올라갔을 수도 있다."""
 
 
+NEO_ROOT_DEFAULT = "~/Library/CloudStorage/GoogleDrive-sinmu911@gmail.com/내 드라이브/블로그_NEO"
+
+
 def _squash(s: str) -> str:
     return re.sub(r"\s+", " ", s.replace("\xa0", " ")).strip()
 
@@ -596,6 +599,29 @@ FIND_TEXT_JS = """(oldText) => {
   }
   return {ok: false};
 }"""
+ZW_JS = "\\" "u200b" "\\" "ufeff"   # 보이지 않는 글자(JS 정규식용). 드라이브 전송이 역슬래시 u 를 바꾸지 않게 나눠 씀
+TAIL_JS = """(t) => {
+  const root = document.querySelector('.se-components-wrap') || document.body;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode: n =>
+    n.parentElement && n.parentElement.closest('.se-text-paragraph') && n.nodeValue.replace(/[ZWCHARS\\s]/g, '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT});
+  let last = null; while (walker.nextNode()) last = walker.currentNode;
+  if (!last) return {ok: false, end: ''};
+  const v = last.nodeValue.replace(/[ZWCHARS]/g, '').replace(/\\s+$/, '');
+  if (!v.endsWith(t)) return {ok: false, end: v.slice(-12)};
+  last.parentElement.scrollIntoView({block: 'center'});
+  const k = last.nodeValue.lastIndexOf(t);
+  const r = document.createRange(); r.setStart(last, k); r.setEnd(last, k + 1); const b = r.getClientRects()[0] || r.getBoundingClientRect();
+  return {ok: true, x: b.left + 1, y: b.top + b.height / 2, n: t.length, want: t};
+}""".replace("ZWCHARS", ZW_JS)
+TAIL_SELECT_JS = """(t) => {
+  const root = document.querySelector('.se-components-wrap') || document.body;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {acceptNode: n =>
+    n.parentElement && n.parentElement.closest('.se-text-paragraph') && n.nodeValue.replace(/[ZWCHARS\\s]/g, '') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT});
+  let last = null; while (walker.nextNode()) last = walker.currentNode;
+  const v = last.nodeValue, k = v.lastIndexOf(t);
+  const r = document.createRange(); r.setStart(last, k); r.setEnd(last, k + t.length);
+  const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r); return sel.toString();
+}""".replace("ZWCHARS", ZW_JS)
 SELECTION_JS = "() => window.getSelection().toString()"
 PROBE_JS = "() => { const p = document.querySelector('[data-edit-probe]'); return p ? p.innerText : '(문단 없어짐)'; }"
 # 문서 전체 글자(보이지 않는 글자 뺌) — 예상 밖 변화가 어디서 났는지 앞뒤 글자로 보여 주려고
@@ -655,6 +681,8 @@ def _select_like_person(page: Page, frame: Frame, sel: dict) -> bool:
 def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str, Path],
                 edit_url: str = EDIT_URL):
     """수정 화면을 열고 spec 대로 고친다. [발행]은 누르지 않는다. 돌려주는 값: (화면, 편집틀, 한 일 목록)."""
+    if spec.get("mode") == "replace_body":
+        return replace_body(pub, log_no, spec, spec.get("_neo_root") or NEO_ROOT_DEFAULT, edit_url)
     page = pub._ctx.new_page()
     page.on("dialog", pub._on_dialog)
     done: List[str] = []
@@ -710,10 +738,131 @@ def apply_edits(pub: "NaverPublisher", log_no: str, spec: dict, images: Dict[str
             done.append(f"안 바뀜: {old[:20]!r} — {problem} ({n}곳은 바꿈)")
         else:
             done.append(f"바꿈 {n}곳: {old[:20]!r} → {new[:20]!r}" if n else f"못 찾음: {old[:30]!r}")
+    for tail in spec.get("strip_tail", []):            # (10-15) 본문 맨 끝 글 조각만 지우기 — 같은 글이 본문 다른 곳에 있어도 끝의 것만
+        info = frame.evaluate(TAIL_JS, tail)
+        if not info.get("ok"):
+            done.append("못 찾음: 본문 끝이 %r 로 끝나지 않음(끝: %r)" % (tail, info.get("end", "")))
+            continue
+        before_doc = frame.evaluate(DOC_TEXT_JS)
+        _select_like_person(page, frame, info)              # 네이버 편집기는 스크립트 선택을 무시해서(10-15 시험) 사람처럼 마우스+Shift+→ 로 잡는다
+        page.keyboard.press("Backspace")
+        after_doc = frame.evaluate(DOC_TEXT_JS)
+        if after_doc.rstrip() == before_doc.rstrip()[:-len(tail)].rstrip() or after_doc.rstrip() == before_doc.rstrip()[:-len(tail)]:
+            done.append("끝 조각 지움: %r" % tail)
+        else:
+            done.append("안 바뀜: 끝 조각 %r 지운 뒤 글자 수가 예상과 다름" % tail)
     for item in spec.get("insert_images", []):
         # 수정 화면에서 그림 넣기는 아직 못 믿는다 — 커서를 스크립트로 두면 네이버가 무시해서
         # 그림이 엉뚱한 자리에 들어간다(점검 10-12). 넣을 그림이 있으면 발행하지 않는다.
         done.append(f"그림 넣을 자리 확인 못 함(수정에서 그림 넣기는 아직 안 돼요): {item.get('file', '')}")
+    return page, frame, done
+
+
+# ── 이미 올린 글의 본문을 완성본으로 통째 바꾸기(10-14, 보고서 「발행대기」의 「본문 교체」 단추) ──────────
+# 글수정_대기.json 의 한 글에 {"id", "log_no", "mode": "replace_body", "md": "초안/…_완성본.md", "md_sha": "<완성본 지문>"} 를 적으면
+# 5분 자동 실행이 먼저 시험(옛 본문 비우기 → 새 본문 넣기 → 화면 사진, 발행 안 함)을 하고, 승인(approved) 뒤에만 [발행]한다 — 기존 수정과 같은 길.
+# 지킴: 옛 본문이 다 안 비워지면 멈춤 · 새 본문이 완성본과 다르면(_verify_body) 멈춤 · 완성본이 시험 뒤 바뀌면(md_sha) 다시 시험부터.
+def _load_replacement(spec: dict, neo_root: str):
+    """spec 의 완성본을 글(Post)과 그림 목록으로. 문제가 있으면 (None, None, 이유)."""
+    import hashlib as _h, tempfile as _t
+    from neo_source import NeoStore
+    store = NeoStore(neo_root)
+    f = store._resolve(spec.get("md", "")) if spec.get("md") else None
+    if not f or not Path(f).is_file():
+        return None, None, "완성본을 못 찾음: %s" % spec.get("md", "")
+    raw = Path(f).read_bytes()
+    if spec.get("md_sha") and _h.sha256(raw).hexdigest()[:16] != spec["md_sha"]:
+        return None, None, "완성본이 시험 때와 달라졌어요(md_sha) — 지문을 새로 적어야 함"
+    post = store.load_post({"path": "edit:" + spec["id"], "file": str(f), "entry": {"md": spec.get("md"), "when": "2000-01-01 00:00"}})
+    errs = [e for e in post.errors if "발행 시각" not in e]
+    if spec.get("keep_title") and any(e.startswith("금지 표현") for e in errs):
+        # 이미 발행된 제목을 그대로 두는 교체(완성본에 그렇게 적힌 경우): 금지 표현이 제목에만 있으면 막지 않는다 — 본문에 있으면 그대로 막는다
+        import blog_policy
+        body_only = [e for e in blog_policy.check("", post.body, post.tags) if e.startswith("금지 표현")]
+        if not body_only:
+            errs = [e for e in errs if not e.startswith("금지 표현")]
+    if errs:
+        return None, None, "완성본 문제: " + "; ".join(errs)[:200]
+    tmp = Path(_t.mkdtemp(prefix="replace_body_"))
+    try:
+        images = store.fetch_images(post, tmp)
+    except Exception as e:  # noqa: BLE001
+        return None, None, "그림을 못 모음: %s" % str(e)[:120]
+    return post, images, ""
+
+
+def replace_body(pub: "NaverPublisher", log_no: str, spec: dict, neo_root: str, edit_url: str = EDIT_URL):
+    """수정 화면에서 옛 본문을 비우고 완성본을 넣는다. [발행]은 누르지 않는다. 돌려주는 값: (화면, 편집틀, 한 일 목록)."""
+    post, images, why = _load_replacement(spec, neo_root)
+    if post is None:
+        raise EditorError(why)
+    page = pub._ctx.new_page()
+    page.on("dialog", pub._on_dialog)
+    done: List[str] = []
+    old_url, pub.write_url = pub.write_url, edit_url.replace("{log_no}", str(log_no))
+    try:
+        frame = pub._open_editor(page)
+    finally:
+        pub.write_url = old_url
+    page = frame.page
+    pub._dismiss_popups(frame)
+    before = pub._body_text(frame)
+    first = frame.locator(SELECTORS["body_paragraph"]).first
+    if not first.count():
+        raise EditorError("본문 칸을 못 찾았어요")
+    first.click()
+    page.keyboard.press("Meta+A")
+    page.keyboard.press("Backspace")
+    page.keyboard.press("Backspace")
+    left = pub._body_text(frame)
+    for ph in frame.locator(".se-placeholder").all_inner_texts():      # 빈 칸에 뜨는 안내 글(예: '글감과 함께 나의 일상을 기록해보세요!')은 본문이 아니다
+        left = left.replace(_squash(ph), "").strip()
+    if left:
+        return page, frame, ["안 바뀜: 옛 본문을 다 비우지 못함(남은 글 %d자) — 발행 안 함" % len(left)]
+    done.append("옛 본문 비움(%d자)" % len(before))
+    first = frame.locator(SELECTORS["body_paragraph"]).first
+    if first.count():
+        first.click()
+    title_box = _first_visible(frame, SELECTORS["title"], T_SHORT_MS)
+    if not spec.get("keep_title") and title_box is not None and _squash(title_box.inner_text()) != _squash(post.title):
+        title_box.click()
+        page.keyboard.press("Meta+A")
+        page.keyboard.press("Backspace")
+        pub._fill_title(frame, post.title)
+        done.append("제목 바꿈")
+    page.keyboard.press("Escape")                       # 비운 뒤 뜨는 도움말·글감 창이 클릭을 가리지 않게
+    pub._dismiss_popups(frame)
+    orig_focus = pub._focus_end
+
+    def focus_end_edit(pg, fr):
+        """수정 화면에서는 그림 바로 뒤의 빈 글 칸이 크기 0 으로 남아 보통 클릭이 안 먹는다(10-14 ②-a 시험) → 그때만 강제로 커서를 둔다."""
+        try:
+            return orig_focus(pg, fr)
+        except (PlaywrightError, EditorError):
+            para = fr.locator(SELECTORS["body_paragraph"]).last
+            if not para.count():
+                raise
+            para.click(force=True, timeout=T_SHORT_MS)
+            para.evaluate(CARET_END_JS)
+
+    pub._focus_end = focus_end_edit
+    try:
+        pub._fill_body(page, frame, post.segments, images)
+    except Exception as e:  # noqa: BLE001 — 넣다가 막히면 그 화면을 찍고 '안 바뀜'으로(발행 안 함)
+        shot = pub._shot(page, "replace-fail")
+        return page, frame, done + ["안 바뀜: 새 본문을 넣다가 멈춤(%s) 화면: %s" % (str(e).split("\n")[0][:80], shot)]
+    finally:
+        pub._focus_end = orig_focus
+    try:
+        pub._verify_body(frame, post)
+    except EditorError as e:
+        return page, frame, done + ["안 바뀜: 새 본문이 완성본과 다름: %s" % str(e)[:120]]
+    # (10-15 ②-a) 넣은 뒤 본문 끝이 완성본 마지막 글과 같은지 — 옛 글자가 꼬리에 남으면(실제로 '라요'가 남았음) 발행하지 않는다
+    tail = next((_squash(sg.text) for sg in reversed(post.segments) if sg.kind == "html" and _squash(sg.text)), "")
+    now_text = pub._body_text(frame)
+    if tail and not now_text.endswith(tail[-20:]):
+        return page, frame, done + ["안 바뀜: 본문 끝에 완성본에 없는 글이 남음(…%s) — 발행 안 함" % now_text[-15:]]
+    done.append("새 본문 넣음(글 %d칸 · 그림 %d장)" % (sum(1 for s in post.segments if s.kind == "html"), sum(1 for s in post.segments if s.kind == "image")))
     return page, frame, done
 
 

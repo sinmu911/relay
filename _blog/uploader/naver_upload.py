@@ -692,9 +692,23 @@ def auto_edit(cfg: dict, state_file: StateFile, publisher_factory, notify) -> st
         for res in results:
             if res.get("shot") and Path(res["shot"]).is_file():
                 shutil.copyfile(res["shot"], shots / f"{res['id']}.png")
+        # (10-14) 글마다 마지막 결과를 남긴다 — 이번에 안 돈 글의 앞 결과를 지우지 않는다. md_sha 는 그 시험에 쓴 완성본 지문(보고서 단추가 대기 항목과 맞춰 봄)
+        by_id = {s["id"]: s for s in specs}
+        for res in results:
+            if by_id.get(res["id"], {}).get("md_sha"):
+                res["md_sha"] = by_id[res["id"]]["md_sha"]
+        prev = {}
+        try:
+            for r in json.loads((root / EDIT_RESULT_REL).read_text(encoding="utf-8")).get("results", []):
+                if r.get("id") in by_id and r.get("id") not in done:
+                    prev[r["id"]] = r
+        except (OSError, ValueError):
+            pass
+        for res in results:
+            prev[res["id"]] = res
         (root / EDIT_RESULT_REL).write_text(json.dumps(
-            {"_설명": "자동 실행의 글 수정 결과. 시험 끝(다 됨)이면 블로그 보조가 그 글에 \"approved\": hash 를 적어 발행.",
-             "at": now_str(datetime.now()), "results": results}, ensure_ascii=False, indent=1), encoding="utf-8")
+            {"_설명": "자동 실행의 글 수정 결과(글마다 마지막 것). 시험 끝(다 됨)이고 hash 가 지금 수정본과 같으면 승인(approved)으로 발행. md_sha = 그 시험에 쓴 완성본 지문.",
+             "at": now_str(datetime.now()), "results": list(prev.values())}, ensure_ascii=False, indent=1), encoding="utf-8")
     except OSError as e:
         log.warning("글 수정 결과를 드라이브에 못 씀: %s", e)
     log.info("글 수정 자동: %s", [(r["id"], r["mode"], r.get("status")) for r in results])
