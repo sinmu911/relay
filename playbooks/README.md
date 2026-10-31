@@ -36,3 +36,9 @@ python3 playbooks/relay-shell-release/files/check.py # relay 앱 배포 전 증�
 | 폴더 | 일 | 상태 |
 |---|---|---|
 | `relay-shell-release/` | 중계현황 설치 앱(PWA 껍데기) 변경 반영 | 초안 — 저장소 이력에서 추출, 인터뷰 미실시 |
+| `report-verified/` | 모든 노드의 정상/완료 보고 (확인 범위 구분) | 공용 — guestcard-report-verified 일반화 |
+
+## 제재 장치 (거짓 보고 1건 = 장치 1개)
+- 장부: `_sanctions/LEDGER.md` — 검사기가 장치 파일 존재까지 확인
+- 훅: `.claude/hooks/claim_gate.py` (Stop) — 이번 턴 도구 실행 0회, `근거:` 없음, `미확인` 진술 없음 중 하나라도 있으면 완료 보고를 막음
+- 다른 PC/노드에 적용: `.claude/hooks/claim_gate.py`를 복사하고 `~/.claude/settings.json`의 `hooks.Stop`에 같은 명령을 추가

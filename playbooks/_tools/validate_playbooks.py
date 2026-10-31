@@ -38,6 +38,25 @@ for d in dirs:
                     fails.append(f"{name}: 비밀값 의심 {f.relative_to(BASE)}:{n}")
     print(f"{'FAIL' if any(x.startswith(name + ':') for x in fails) else 'PASS'}  {name}")
 
+# 제재 장부: 저장소 안 장치 경로는 실제로 있어야 하고, 외부(~/) 장치는 '외부-미확인'으로 표시돼야 한다
+ledger = BASE / "_sanctions" / "LEDGER.md"
+REPO = BASE.parent
+if ledger.is_file():
+    rows = [r for r in ledger.read_text(encoding="utf-8").splitlines() if re.match(r"\|\s*\d{4}-\d{2}-\d{2}", r)]
+    for r in rows:
+        cols = [c.strip() for c in r.strip("|").split("|")]
+        if len(cols) != 7:
+            fails.append(f"_sanctions: 칸 수 {len(cols)}≠7 → {r[:40]}"); continue
+        dev, state = cols[4], cols[6]
+        if dev.startswith("~/"):
+            if state != "외부-미확인":
+                fails.append(f"_sanctions: 외부 장치 {dev} 상태가 '{state}' (검증 불가 → '외부-미확인')")
+        elif not (REPO / dev).is_file():
+            fails.append(f"_sanctions: 장치 파일 없음 {dev}")
+    print(f"{'FAIL' if any(x.startswith('_sanctions') for x in fails) else 'PASS'}  _sanctions (장부 {len(rows)}줄)")
+else:
+    fails.append("_sanctions: LEDGER.md 없음")
+
 for f in fails:
     print("  -", f)
 print(f"\n매뉴얼 {len(dirs)}개 검사, 문제 {len(fails)}개")
