@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""UserPromptSubmit 훅 — 사용자 요청에 스킬 트리거 말이 있으면 그 스킬을 쓰라고 모델 문맥에 주입하고 사용 기록을 남긴다.
+기록: ~/.claude/skill_usage.log (어느 노드가 어떤 스킬을 언제 받았는지 → 실제 사용 증거)."""
+import json, sys, time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "playbooks" / "_tools"))
+from skilllib import frontmatter, playbooks
+
+data = json.load(sys.stdin)
+prompt = data.get("prompt", "")
+# 직전 응답이 claim_gate 상한으로 강제 통과됐으면 이번 응답 첫 줄에 알리게 한다(조용한 우회 금지)
+bp = Path.home() / ".claude" / "claim_gate_bypass.json"
+try:
+    by = json.loads(bp.read_text())
+    rec = by.pop(data.get("session_id"), None)
+    if rec:
+        bp.write_text(json.dumps(by, ensure_ascii=False))
+        print(f"[claim_gate 우회 경고] 직전 응답은 근거 검증을 통과 못 한 채 종료됨({rec['t']}, 사유: {'; '.join(rec['why'])}). "
+              "이번 응답 첫 줄에 '직전 보고는 미검증'이라고 사용자에게 밝히고, 그 보고를 근거와 함께 다시 할 것.")
+except FileNotFoundError:
+    pass
+hits = []
+for d in playbooks():
+    f = frontmatter(d / "SKILL.md")
+    words = [t for t in f.get("triggers", []) if t and t.lower() in prompt.lower()]
+    if words:
+        hits.append((f.get("name", d.name), words))
+if hits:
+    log = Path.home() / ".claude" / "skill_usage.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with open(log, "a", encoding="utf-8") as fh:
+        for name, w in hits:
+            fh.write(json.dumps({"t": time.strftime("%F %T"), "session": data.get("session_id"), "skill": name, "matched": w}, ensure_ascii=False) + "\n")
+    print("[skill_router] 이 요청에 해당하는 스킬: " + "; ".join(f"{n} (일치: {', '.join(w)})" for n, w in hits)
+          + " — Skill 도구로 먼저 불러 그 순서와 완료의 정의대로 처리할 것.")
