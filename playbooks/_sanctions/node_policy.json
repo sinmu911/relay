@@ -1,0 +1,8 @@
+{
+  "_설명": "claim_gate 노드별 제재 강도. 노드 판별: 환경변수 CLAUDE_NODE=<이름> 이 우선, 없으면 cwd_prefix 일치. cwd_prefix 값은 각 노드가 실제로 도는 폴더로 사용자가 채울 것(현재 미확인 추정치). 강화는 제재 장부(LEDGER.md)에 사건 1줄과 함께 기록.",
+  "default": { "max_blocks": 3, "require_trace": true, "min_traced": 1 },
+  "nodes": {
+    "chatbot":    { "cwd_prefix": "", "max_blocks": 1, "require_trace": true, "min_traced": 2 },
+    "secretary":  { "cwd_prefix": "", "max_blocks": 3, "require_trace": true, "min_traced": 1 }
+  }
+}

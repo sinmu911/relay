@@ -30,7 +30,7 @@ metadata:
 5. 새 아이콘 이름을 manifest.json·index.html·app.html·sw.js 모두에 반영한다.
 6. `python3 playbooks/relay-shell-release/files/check.py` 실행 → 실패 0이 될 때까지 고친다.
 7. 커밋: 제목 한 줄, 쉬운 한국어로 "무엇을 + (왜)". CHG가 있으면 앞에 `CHG-###`.
-8. 푸시 → GitHub Pages 반영. html/json/js는 sw.js가 늘 새로 받으므로 재설치 불필요.
+8. 작업 브랜치에 푸시 → PR → CI(`checks`) 초록 확인 → 사용자에게 diff·CI 결과 보여주고 `병합 승인 #<번호>` 문구를 받은 뒤 병합(merge_gate 훅이 강제) → GitHub Pages 반영. html/json/js는 sw.js가 늘 새로 받으므로 재설치 불필요.
 
 ## 결정
 - html/js/json만 바뀌었으면 → 이름 바꾸기 불필요(sw.js가 no-store로 새로 받음).

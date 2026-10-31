@@ -29,6 +29,17 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "mcp__github__merge_pull_request|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/merge_gate.py"
+          }
+        ]
+      }
     ]
   }
 }

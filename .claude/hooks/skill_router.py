@@ -10,6 +10,17 @@ from skilllib import frontmatter, playbooks
 
 data = json.load(sys.stdin)
 prompt = data.get("prompt", "")
+# 직전 응답이 claim_gate 상한으로 강제 통과됐으면 이번 응답 첫 줄에 알리게 한다(조용한 우회 금지)
+bp = Path.home() / ".claude" / "claim_gate_bypass.json"
+try:
+    by = json.loads(bp.read_text())
+    rec = by.pop(data.get("session_id"), None)
+    if rec:
+        bp.write_text(json.dumps(by, ensure_ascii=False))
+        print(f"[claim_gate 우회 경고] 직전 응답은 근거 검증을 통과 못 한 채 종료됨({rec['t']}, 사유: {'; '.join(rec['why'])}). "
+              "이번 응답 첫 줄에 '직전 보고는 미검증'이라고 사용자에게 밝히고, 그 보고를 근거와 함께 다시 할 것.")
+except FileNotFoundError:
+    pass
 hits = []
 for d in playbooks():
     f = frontmatter(d / "SKILL.md")

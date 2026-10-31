@@ -41,7 +41,11 @@ python3 playbooks/relay-shell-release/files/check.py # relay 앱 배포 전 증�
 ## 제재 장치 (거짓 보고 1건 = 장치 1개)
 - 장부: `_sanctions/LEDGER.md` — 검사기가 장치 파일 존재까지 확인
 - 훅: `.claude/hooks/claim_gate.py` (Stop) — 이번 턴 도구 실행 0회, `근거:` 없음, `미확인` 진술 없음 중 하나라도 있으면 완료 보고를 막음
-- 다른 PC/노드에 적용: `.claude/hooks/claim_gate.py`를 복사하고 `~/.claude/settings.json`의 `hooks.Stop`에 같은 명령을 추가
+- claim_gate는 형식 + **추적성**까지 본다: `근거:` 줄의 `백틱`·파일·개수(6/6)·exit 코드·해시가 이번 턴 실제 도구 출력에 있어야 함. 없는 숫자를 쓰면 차단. 한계: 그 출력이 주장과 관련 있는지는 판단 못 함
+- 상한 도달 시 조용한 통과 없음: 사용자 화면 경고 + 다음 요청 첫 줄에 '직전 보고 미검증' 공개
+- 노드별 강도: `_sanctions/node_policy.json` (CLAUDE_NODE 환경변수 또는 cwd)
+- 병합: `merge_gate.py` — 사용자 최근 메시지에 `병합 승인 #번호` 가 있어야 병합, `main 푸시 승인` 이 있어야 main 푸시. CI `checks`가 같은 검사를 독립 실행
+- 다른 PC/노드 설치: **자동 git pull 금지.** `python3 playbooks/_tools/install_approved.py` 로 diff 확인 → `--approve <커밋>` (origin/main에 병합된 커밋만). 실행본은 `~/.claude/relay-approved/current/` — 작업폴더가 바뀌어도 실행본은 그대로
 
 ## 스킬 자동 사용 (새 스킬이 생기면 노드가 알아서 쓰게)
 1. 새 일감: `_template/` 복사 → SKILL.md 맨 위 frontmatter의 `name`(=폴더명), `description`(언제 쓰는지), `metadata.triggers`(실제로 칠 말)를 채운다.
