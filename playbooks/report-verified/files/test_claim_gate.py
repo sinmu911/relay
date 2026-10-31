@@ -40,7 +40,7 @@ for name, blocks, want in cases:
 
 # 상한 도달: 조용히 통과 금지 — systemMessage 경고 + 우회 기록 + 라우터가 다음 요청에 경고 주입
 sid = uuid.uuid4().hex
-seq = [run([T("정상입니다")], sid=sid, active=i > 0) for i in range(4)]
+seq = [run([T("정상입니다. 미확인: 폰")], sid=sid, active=i > 0) for i in range(4)]
 codes = [r.returncode for r in seq]
 warn = "systemMessage" in seq[-1].stdout and "강제 종료" in seq[-1].stdout
 router = HOOK.parent / "skill_router.py"
@@ -52,13 +52,30 @@ print(f"{'PASS' if ok else 'FAIL'}  상한 도달 시 공개 경고 — 코드 {
 
 # 노드별 정책: CLAUDE_NODE=chatbot 은 max_blocks 1, min_traced 2
 sid2 = uuid.uuid4().hex
-c1 = [run([T("정상입니다")], sid=sid2, active=i > 0, env_extra={"CLAUDE_NODE": "chatbot"}).returncode for i in range(2)]
+c1 = [run([T("정상입니다. 미확인: 폰")], sid=sid2, active=i > 0, env_extra={"CLAUDE_NODE": "chatbot"}).returncode for i in range(2)]
 c2 = run([TOOL, OUT, T("정상.\n근거: check.py 실행\n미확인: 없음")], env_extra={"CLAUDE_NODE": "chatbot"}).returncode
 c3 = run([TOOL, OUT, T("정상.\n근거: check.py 실행\n미확인: 없음")]).returncode
 ok = c1 == [2, 0] and c2 == 2 and c3 == 0
 fail += not ok
 print(f"{'PASS' if ok else 'FAIL'}  노드 차등(chatbot 더 엄격) — 상한 {c1}, 토큰1개 chatbot {c2} / default {c3}")
 
-total = len(cases) + 2
+# 상한 후 최소 제약: 미확인 없으면 2회 더 막고, 미확인 있으면 근거 없어도 공개 통과 + 탈출 기록
+sid3 = uuid.uuid4().hex
+c4 = [run([T("정상입니다")], sid=sid3, active=i > 0).returncode for i in range(6)]
+sid4 = uuid.uuid4().hex
+c5 = [run([T("정상입니다. 미확인: 폰")], sid=sid4, active=i > 0).returncode for i in range(4)]
+esc = Path(HOME) / ".claude" / "claim_gate_escapes.jsonl"
+n_esc = len(esc.read_text().splitlines()) if esc.is_file() else 0
+ok = c4 == [2, 2, 2, 2, 2, 0] and c5 == [2, 2, 2, 0] and n_esc >= 3
+fail += not ok
+print(f"{'PASS' if ok else 'FAIL'}  상한 후 '미확인' 최소 제약 — 미확인 없음 {c4}, 있음 {c5}, 탈출 기록 {n_esc}건")
+
+# 에스컬레이션: 탈출 기록이 기준 이상이면 세션 시작 알림에 뜸
+ann = subprocess.run([sys.executable, str(HOOK.parent / "skill_announce.py")], input="{}", capture_output=True, text=True, env=dict(os.environ, HOME=HOME)).stdout
+ok = "[에스컬레이션]" in ann and "default" in ann
+fail += not ok
+print(f"{'PASS' if ok else 'FAIL'}  반복 탈출 에스컬레이션 알림 — {'표시됨' if ok else ann[-120:]}")
+
+total = len(cases) + 4
 print(f"\n{total - fail}/{total} 통과")
 sys.exit(1 if fail else 0)

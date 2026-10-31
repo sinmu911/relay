@@ -28,4 +28,26 @@ seen_f.write_text(json.dumps(now, ensure_ascii=False))
 msg = "[skill_announce] 이 저장소의 업무 스킬 — 해당 요청이면 묻지 말고 먼저 그 SKILL.md 순서·완료의 정의를 따를 것:\n" + "\n".join(lines)
 if fresh:
     msg += "\n이번 세션에서 처음 보는/바뀐 스킬: " + ", ".join(fresh) + " — 첫 응답에서 한 줄로 알릴 것."
+# 반복 탈출 에스컬레이션: 최근 7일 claim_gate 강제 통과 집계 → 기준 이상 노드는 비서실장 검토 대상
+import time as _t
+esc = Path.home() / ".claude" / "claim_gate_escapes.jsonl"
+if esc.is_file():
+    cut = _t.strftime("%F", _t.localtime(_t.time() - 7 * 86400))
+    cnt = {}
+    for l in esc.read_text(encoding="utf-8").splitlines():
+        try:
+            r = json.loads(l)
+        except Exception:
+            continue
+        if r.get("t", "") >= cut:
+            cnt[r.get("node", "default")] = cnt.get(r.get("node", "default"), 0) + 1
+    try:
+        lim = json.loads((ROOT / "playbooks/_sanctions/node_policy.json").read_text(encoding="utf-8")).get("escalate_after", 2)
+    except Exception:
+        lim = 2
+    hot = {k: v for k, v in cnt.items() if v >= lim}
+    if hot:
+        msg += ("\n[에스컬레이션] 최근 7일 claim_gate 강제 통과(미검증 보고) " + ", ".join(f"{k} {v}회" for k, v in hot.items())
+                + f" — 기준 {lim}회 이상. 첫 응답에서 사용자에게 알리고, 비서실장 노드는 해당 보고를 원자료와 대조(verify-node-reports)할 것. "
+                "상세: python3 playbooks/_tools/escape_report.py")
 print(msg[:9500])

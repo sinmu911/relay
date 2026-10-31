@@ -40,6 +40,7 @@ python3 playbooks/relay-shell-release/files/check.py # relay 앱 배포 전 증�
 
 ## 제재 장치 (거짓 보고 1건 = 장치 1개)
 - 장부: `_sanctions/LEDGER.md` — 검사기가 장치 파일 존재까지 확인
+- 역할 분리: `_sanctions/GATES.md` — claim_gate는 형식·추적 게이트, 진위는 비서실장 교차검증. 반복 탈출 집계: `python3 playbooks/_tools/escape_report.py`
 - 훅: `.claude/hooks/claim_gate.py` (Stop) — 이번 턴 도구 실행 0회, `근거:` 없음, `미확인` 진술 없음 중 하나라도 있으면 완료 보고를 막음
 - claim_gate는 형식 + **추적성**까지 본다: `근거:` 줄의 `백틱`·파일·개수(6/6)·exit 코드·해시가 이번 턴 실제 도구 출력에 있어야 함. 없는 숫자를 쓰면 차단. 한계: 그 출력이 주장과 관련 있는지는 판단 못 함
 - 상한 도달 시 조용한 통과 없음: 사용자 화면 경고 + 다음 요청 첫 줄에 '직전 보고 미검증' 공개

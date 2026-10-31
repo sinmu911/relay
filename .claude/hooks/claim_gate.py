@@ -22,6 +22,7 @@ UNVER = re.compile(r"미확인|확인\s*못|확인\s*불가|확인하지\s*않|u
 TOKEN = re.compile(r"`([^`]{2,120})`|(\b\d+/\d+\b)|\b(exit\s*(?:code\s*)?[=:]?\s*\d+)\b|(\b[0-9a-f]{7,40}\b)|([\w./-]+\.(?:py|md|json|js|html|png|sh|log|jsonl))", re.I)
 HOME = Path.home() / ".claude"
 LOG, BYPASS = HOME / "claim_gate.log", HOME / "claim_gate_bypass.json"
+ESCAPES = HOME / "claim_gate_escapes.jsonl"   # 영구 누적 — 에스컬레이션 집계용(지우지 않음)
 
 def policy(cwd):
     try:
@@ -120,7 +121,14 @@ def main():
     rec = {"t": time.strftime("%F %T"), "session": sid, "node": node, "n": n, "why": why}
     with open(LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    unver_missing = any(w.startswith("미확인") for w in why)
+    if n > pol["max_blocks"] and unver_missing and n <= pol["max_blocks"] + 2:
+        # 상한 뒤에도 최소 제약 유지: 근거 요구는 내려놓되 '미확인' 명시만은 계속 강제 (절대 상한 max_blocks+2)
+        print(f"[claim_gate:{node}] 상한 도달 — 근거 요구는 해제, 그러나 확인 못 한 범위를 '미확인:'으로 반드시 적을 것", file=sys.stderr)
+        return 2
     if n > pol["max_blocks"]:
+        with open(ESCAPES, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
         # 무한반복은 막되 조용히 통과시키지 않는다: 사용자 화면 경고 + 다음 요청에 경고 주입용 기록
         try:
             by = json.loads(BYPASS.read_text())

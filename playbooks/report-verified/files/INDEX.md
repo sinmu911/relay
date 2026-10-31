@@ -1,4 +1,4 @@
 # files/ 색인
 | 파일 | 용도 | 추가일 |
 |---|---|---|
-| test_claim_gate.py | claim_gate Stop 훅 회귀 시험 (막을 것 4, 통과 3, 반복 상한 1) | 2026-10-31 |
+| test_claim_gate.py | claim_gate Stop 훅 회귀 시험 (가짜 근거·상한·최소 제약·에스컬레이션·노드 차등 포함 13개) | 2026-10-31 |
