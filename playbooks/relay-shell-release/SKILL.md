@@ -1,3 +1,9 @@
+---
+name: relay-shell-release
+description: 중계현황 설치 앱(PWA 껍데기: index.html·app.html·sw.js·manifest.json·아이콘) 변경을 넣고 폰에 재설치 없이 반영할 때 사용. 배포 전 files/check.py 증명 검사 필수.
+metadata:
+  triggers: ["중계현황 앱", "설치 앱", "아이콘 바꿔", "CHG-", "앱 화면 고쳐", "sw.js", "manifest"]
+---
 # relay-shell-release
 
 > 상태: **초안(80%)** — 저장소 git 이력·코드에서 추출. 인터뷰(`../_prompts/1-interview.md`) 미실시.

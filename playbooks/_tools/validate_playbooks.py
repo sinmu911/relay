@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """playbooks/ 아래 모든 매뉴얼 폴더 구조 검사. 실패 시 종료코드 1."""
-import re, sys
+import re, subprocess, sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from skilllib import frontmatter
 
 BASE = Path(__file__).resolve().parents[1]
 SECTIONS = ["목적", "언제 쓰는지", "입력", "순서", "결정", "완료의 정의", "예외 사례"]
@@ -15,6 +17,14 @@ for d in dirs:
     skill = d / "SKILL.md"
     if not skill.is_file():
         fails.append(f"{name}: SKILL.md 없음"); continue
+    fm = frontmatter(skill)
+    if name != "_template":
+        if fm.get("name") != name:
+            fails.append(f"{name}: frontmatter name '{fm.get('name')}' ≠ 폴더명 (자동 호출 안 됨)")
+        if not fm.get("description") or len(fm["description"]) > 1536:
+            fails.append(f"{name}: frontmatter description 없음/1536자 초과 (자동 호출 근거)")
+        if not fm.get("triggers"):
+            fails.append(f"{name}: metadata.triggers 없음 (skill_router가 못 잡음)")
     heads = re.findall(r"^##\s+(.+?)\s*$", skill.read_text(encoding="utf-8"), re.M)
     miss = [s for s in SECTIONS if s not in heads]
     if miss:
@@ -56,6 +66,11 @@ if ledger.is_file():
     print(f"{'FAIL' if any(x.startswith('_sanctions') for x in fails) else 'PASS'}  _sanctions (장부 {len(rows)}줄)")
 else:
     fails.append("_sanctions: LEDGER.md 없음")
+
+r = subprocess.run([sys.executable, str(BASE / "_tools/sync_skills.py"), "--check"], capture_output=True, text=True)
+print(f"{'PASS' if r.returncode == 0 else 'FAIL'}  스킬 등록(.claude/skills 링크·SKILLS.md 최신)")
+if r.returncode:
+    fails += ["등록: " + l.strip(" -") for l in r.stdout.splitlines()[1:]]
 
 for f in fails:
     print("  -", f)

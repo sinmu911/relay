@@ -1,3 +1,9 @@
+---
+name: [job-name]
+description: [이 일을 언제 쓰는지 한두 문장 — 실제로 칠 말 포함]
+metadata:
+  triggers: ["[실제로 칠 말]"]
+---
 # [job-name]
 
 ## 목적

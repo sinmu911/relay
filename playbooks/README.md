@@ -42,3 +42,13 @@ python3 playbooks/relay-shell-release/files/check.py # relay 앱 배포 전 증�
 - 장부: `_sanctions/LEDGER.md` — 검사기가 장치 파일 존재까지 확인
 - 훅: `.claude/hooks/claim_gate.py` (Stop) — 이번 턴 도구 실행 0회, `근거:` 없음, `미확인` 진술 없음 중 하나라도 있으면 완료 보고를 막음
 - 다른 PC/노드에 적용: `.claude/hooks/claim_gate.py`를 복사하고 `~/.claude/settings.json`의 `hooks.Stop`에 같은 명령을 추가
+
+## 스킬 자동 사용 (새 스킬이 생기면 노드가 알아서 쓰게)
+1. 새 일감: `_template/` 복사 → SKILL.md 맨 위 frontmatter의 `name`(=폴더명), `description`(언제 쓰는지), `metadata.triggers`(실제로 칠 말)를 채운다.
+2. 등록: `python3 playbooks/_tools/sync_skills.py` — `.claude/skills/`에 링크 + `SKILLS.md` 색인. 세션 시작 훅도 자동 실행.
+   이 컴퓨터의 모든 세션(다른 저장소 포함)에 걸려면: `--target ~/.claude/skills`
+3. 자동 작동:
+   - Claude Code가 skills 폴더를 감시 → description이 맞는 요청에 스킬 자동 호출(공식 기능)
+   - `skill_announce.py`(SessionStart): 세션마다 스킬 목록 + 새로/바뀐 스킬 알림
+   - `skill_router.py`(UserPromptSubmit): 요청에 트리거 말이 있으면 해당 스킬을 쓰라고 주입 + `~/.claude/skill_usage.log` 기록
+4. 검사: `validate_playbooks.py`가 frontmatter·트리거·등록 누락을 실패로 잡는다. 끝단 시험: `python3 playbooks/_tools/test_skill_autouse.py`
