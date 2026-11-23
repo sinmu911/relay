@@ -17,6 +17,8 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Frame, Locator, Page, sync_playwright
 
 from blogpost import Post, Segment, html_to_lines
+import blog_images
+import place_pin
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +47,10 @@ SELECTORS = {
     # 지도 장소 넣기 — 진짜 화면에서 아직 못 본 부분이라 이름표(글자)로도 찾는다. 안 되면 건너뛰고 알림(글은 계속)
     "place_button": ["button.se-map-toolbar-button", "button[data-name='map']", "button:has-text('장소')"],
     "place_input": ["input[placeholder*='장소']", "input[placeholder*='검색']", ".se-popup input[type='text']"],
+    # 검색 결과 한 줄(이름·주소·[추가]) — 주소를 읽어 대조해야 동명 장소 오매핑을 막는다(2026-11-18)
+    "place_result_item": ["li[class*='place']", ".se-popup-place-item", "[class*='search_list'] li"],
+    "place_result_addr": ["[class*='address']", "[class*='addr']", "span[class*='road']"],
+    "place_result_name": ["[class*='name']", "strong"],
     "place_add": ["button:has-text('추가')"],
     "place_ok": ["button:has-text('확인')"],
     "place_component": ".se-component.se-placesMap, .se-component.se-map",
@@ -140,6 +146,7 @@ class NaverPublisher:
         self._ctx = None
         self._dialogs: List[str] = []
         self.notes: List[str] = []   # 글은 올렸지만 사람이 볼 것(예: 장소를 못 붙임)
+        self.needs_review = False    # 지도 핀처럼 '틀린 채로 올리면 안 되는 것'이 실패한 상태(발행 전 멈춤)
 
     def __enter__(self) -> "NaverPublisher":
         self._pw = sync_playwright().start()
@@ -168,14 +175,18 @@ class NaverPublisher:
         page = self._ctx.new_page()
         self._dialogs = []
         self.notes = []
+        self.needs_review = False
         page.on("dialog", self._on_dialog)
         clicked_final = False
         try:
             frame = self._open_editor(page)
             self._dismiss_popups(frame)
             self._fill_title(frame, post.title)
+            images = self._prepared(images)
             self._fill_body(page, frame, post.segments, images)
             self._verify_body(frame, post)
+            if self.needs_review:
+                raise EditorError("발행 전 확인 필요: " + " / ".join(self.notes[:3]))
             confirm = self._open_publish_layer(frame)
             self._set_category(frame, post.category)
             self._set_tags(page, frame, post.tags)
@@ -210,11 +221,13 @@ class NaverPublisher:
         page = self._ctx.new_page()
         self._dialogs = []
         self.notes = []
+        self.needs_review = False
         page.on("dialog", self._on_dialog)
         try:
             frame = self._open_editor(page)
             self._dismiss_popups(frame)
             self._fill_title(frame, post.title)
+            images = self._prepared(images)
             self._fill_body(page, frame, post.segments, images)
             self._verify_body(frame, post)
             self._prefill_publish_layer(page, frame, post)
@@ -340,7 +353,7 @@ class NaverPublisher:
             if seg.kind == "image":
                 self._insert_image(page, frame, images[seg.image_path])
             elif seg.kind == "place":
-                self._insert_place(page, frame, seg.text)
+                self._insert_place(page, frame, seg.text, seg.addr_tokens)
             else:
                 self._insert_html(page, frame, seg)
 
@@ -423,8 +436,45 @@ class NaverPublisher:
             raise EditorError(f"사진 올리기가 안 끝났어요: {path.name}")
         page.wait_for_timeout(800)  # 사진 서버 업로드가 화면 표시보다 조금 늦게 끝나는 것 대비
 
-    def _insert_place(self, page: Page, frame: Frame, name: str) -> bool:
-        """네이버 지도 장소 하나를 붙인다. 못 붙여도 글은 계속 올린다(사장님이 앱에서 붙이면 됨) — 알림에 남김."""
+    def _read_place_candidates(self, frame: Frame, limit: int = 5) -> List[Dict[str, str]]:
+        """지도 검색 결과의 (이름·주소)를 위에서부터 limit 개 읽는다. 못 읽으면 빈 목록."""
+        out: List[Dict[str, str]] = []
+        rows = None
+        for sel in SELECTORS["place_result_item"]:
+            loc = frame.locator(sel)
+            if loc.count():
+                rows = loc
+                break
+        if rows is None:
+            return out
+        for i in range(min(rows.count(), limit)):
+            row = rows.nth(i)
+            name = ""
+            addr = ""
+            for sel in SELECTORS["place_result_name"]:
+                loc = row.locator(sel)
+                if loc.count():
+                    name = _squash(loc.first.inner_text())
+                    break
+            for sel in SELECTORS["place_result_addr"]:
+                loc = row.locator(sel)
+                if loc.count():
+                    addr = _squash(loc.first.inner_text())
+                    break
+            if not addr:            # 주소 셀렉터를 못 찾으면 줄 전체 글자에서 주소를 찾는다
+                whole = _squash(row.inner_text())
+                m = re.search(r"((?:[가-힣]+(?:시|도|군|구)\s*){1,3}[가-힣0-9]+(?:로|길)[^\n]*)", whole)
+                if m:
+                    addr = m.group(1)
+                elif re.search(r"(동|읍|면)", whole):
+                    addr = whole
+            out.append({"name": name, "addr": addr})
+        return out
+
+    def _insert_place(self, page: Page, frame: Frame, name: str, addr_tokens: Optional[List[str]] = None) -> bool:
+        """네이버 지도 장소 하나를 붙인다. 넣기 전에 검색 결과 주소를 대조한다(동명 장소 오매핑 방지).
+        맞는 후보가 없으면 붙이지 않고 알림에 남긴다 — 틀린 핀으로 올라가는 것보다 지도가 없는 편이 낫다.
+        못 붙였을 때 글은 계속 올린다(사장님이 앱에서 붙이면 됨) — 대신 발행 전 '확인 필요'로 세운다."""
         comps = frame.locator(SELECTORS["place_component"])
         try:
             self._focus_end(page, frame)
@@ -439,36 +489,59 @@ class NaverPublisher:
             box.click()
             page.keyboard.insert_text(name)
             page.keyboard.press("Enter")
-            add = _first_visible(frame, SELECTORS["place_add"], 8000)
-            if not add:
+            page.wait_for_timeout(1200)          # 검색 결과가 그려질 시간
+            cands = self._read_place_candidates(frame)
+            pick = place_pin.choose(cands, addr_tokens or [])
+            if pick["index"] is None:
+                raise EditorError("주소 대조 실패 — 핀 생략: " + pick["reason"])
+            adds = frame.locator(SELECTORS["place_add"][0])
+            if not adds.count():
                 raise EditorError("검색 결과가 없음")
-            add.click()
+            (adds.nth(pick["index"]) if adds.count() > pick["index"] else adds.first).click()
             ok = _first_visible(frame, SELECTORS["place_ok"], T_SHORT_MS)
             if not ok:
                 raise EditorError("확인 버튼을 못 찾음")
             ok.click()
             if not _wait_until(frame, lambda: comps.count() > before, 8000):
                 raise EditorError("본문에 지도가 안 보임")
+            log.info("장소 '%s' 붙임 (%s)", name, pick["reason"])
             return True
         except (EditorError, PlaywrightError) as e:
             shot = self._shot(page, "place")
-            log.warning("장소 '%s' 못 붙임(글은 계속): %s · 화면 %s", name, e, shot)
-            self.notes.append(f"장소 '{name}' 못 붙임")
+            log.warning("장소 '%s' 못 붙임(글은 계속하되 확인 필요): %s · 화면 %s", name, e, shot)
+            self.notes.append(f"장소 '{name}' 못 붙임 — {e}")
+            self.needs_review = True
             try:
                 page.keyboard.press("Escape")
             except PlaywrightError:
                 pass
             return False
 
+    def _prepared(self, images: Dict[str, Path]) -> Dict[str, Path]:
+        """올리기 전에 사진을 전부 가로 4:3으로 맞춘다(2026-11-19 확정). 원본은 건드리지 않는다."""
+        try:
+            out, notes = blog_images.normalize_many(images)
+        except Exception as e:      # 사진 손질이 실패해도 발행을 멈추지 않는다
+            self.notes.append(f"사진 4:3 통일을 못 했어요({type(e).__name__}) — 원본 그대로 올림")
+            return images
+        if notes:
+            self.notes.extend(notes)
+            log.info("사진 준비: %s", blog_images.describe([Path(p) for p in out.values()]))
+        return out
+
     def _verify_body(self, frame: Frame, post: Post) -> None:
-        """발행 전에 글·사진이 다 들어갔는지 확인 — 빠진 채로 올라가는 것 방지."""
+        """발행 전에 글·사진·지도가 다 들어갔는지 확인 — 빠진 채로 올라가는 것 방지."""
         want_images = len(post.image_paths)
         got_images = frame.locator(SELECTORS["image_component"]).count()
         if got_images != want_images:
             raise EditorError(f"사진 개수가 안 맞아요(넣을 것 {want_images}, 들어간 것 {got_images})")
+        want_places = len([s for s in post.segments if s.kind == "place"])
+        got_places = frame.locator(SELECTORS["place_component"]).count()
+        if got_places != want_places:
+            raise EditorError(f"지도 장소가 안 맞아요(넣을 것 {want_places}, 들어간 것 {got_places}) — 틀린 핀보다 없는 핀, 그러나 확인은 필요")
         body = self._body_text(frame)
         for seg in post.segments:
-            if seg.kind == "html" and _squash(seg.text)[:15] not in body:
+            if seg.kind in ("html", "ad", "link", "maplink", "shorts") and _squash(seg.text)[:15] not in body:
                 raise EditorError(f"본문 일부가 안 들어갔어요: {seg.text[:30]}")
 
     def _open_publish_layer(self, frame: Frame) -> Locator:

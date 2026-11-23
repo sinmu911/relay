@@ -4,8 +4,10 @@
   NEO   금지 표현(1장) · 빈칸 자리표시([확인 필요]·[사장님 한 줄])가 남아 있으면 안 됨(1장 1번)
   네이버 검문소(블로그 섹션의 발행 전 점검)를 거쳤고 '걸림 0' 이어야 함
   AEO   자주 묻는 질문 3개 이하(3장)
-  SEO   태그에 #달리는이기사(5장) · 파랑 강조 5곳 이하(7장)
+  SEO   태그 10~15개 + 브랜드 태그 #서준의여행한입(5장) · 파랑 강조 5곳 이하(7장)
 
+2026-11-18 서준님 확정: 태그는 정확히 10개 → **10~15개**, 필수 태그는 **#서준의여행한입**
+(구형 #달리는이기사 자동 주입 중단 — 옛 글 수정에만 쓴다). AI 고지 요구는 없다.
 말투·사실 확인처럼 사람 판단이 필요한 건 검문소·리얼엔진(블로그 섹션) 몫이다. 여기선 겹쳐 재지 않는다.
 규칙서가 바뀌면 아래 목록만 고친다.
 """
@@ -16,23 +18,33 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
-RULE_VERSION = "1.2"   # 이 파일이 따르는 규칙서 버전
+RULE_VERSION = "1.3"   # 이 파일이 따르는 규칙서 버전
 BANNED = ("완벽 가이드", "총정리", "완벽 정복", "치트키", "낱낱이", "압도적", "인생샷 성지",
           "에 대해 알아보겠습니다", "를 계획 중이신 분들이라면")
 PLACEHOLDERS = ("[확인 필요]", "[사장님 한 줄]")
-REQUIRED_TAG = "달리는이기사"
+BRAND_TAG = "서준의여행한입"      # 필수 브랜드 태그(2026-11-18 확정)
+REQUIRED_TAG = BRAND_TAG         # 옛 이름으로 부르는 곳이 있어 남겨 둠(값만 바뀜)
+LEGACY_TAG = "달리는이기사"        # 자동 주입 중단 — 있으면 막지 않고 알림만
+MIN_TAGS = 10
+MAX_TAGS = 15
 MAX_FAQ = 3
 MAX_BLUE = 5
-FAQ_HEAD_RE = re.compile(r"^■\s*자주\s*묻는\s*질문")
+FAQ_HEAD_RE = re.compile(r"^(?:>|■)\s*(?:\d+\.\s*)?\**\s*자주\s*묻는\s*질문")
 FAQ_Q_RE = re.compile(r"^\s*\d+\s*[.)]\s*.+\?\s*$")
+STOP_HEAD_RE = re.compile(r"^(?:■|>\s*\d+\.|←|다음 편)")
 
 
 def count_faq(body: str) -> int:
     n, inside = 0, False
     for line in body.split("\n"):
-        if line.startswith("■"):
-            inside = bool(FAQ_HEAD_RE.match(line))
-        elif inside and FAQ_Q_RE.match(line):
+        s = line.strip()
+        if FAQ_HEAD_RE.match(s):
+            inside = True
+            continue
+        if inside and STOP_HEAD_RE.match(s) and not FAQ_Q_RE.match(s):
+            inside = False
+            continue
+        if inside and FAQ_Q_RE.match(s):
             n += 1
     return n
 
@@ -66,6 +78,10 @@ def check(title: str, body: str, tags: List[str], md: Optional[Path] = None,
         problems.append(f"자주 묻는 질문은 {MAX_FAQ}개까지예요(규칙서 3장, 지금 {faq}개)")
     if REQUIRED_TAG not in tags:
         problems.append(f"태그에 #{REQUIRED_TAG} 가 없어요(규칙서 5장)")
+    if not MIN_TAGS <= len(tags) <= MAX_TAGS:
+        problems.append(f"태그는 {MIN_TAGS}~{MAX_TAGS}개예요(규칙서 5장, 지금 {len(tags)}개)")
+    if len(set(tags)) != len(tags):
+        problems.append("같은 태그가 두 번 들어 있어요(규칙서 5장)")
     blue = body.count("{파랑:")
     if blue > MAX_BLUE:
         problems.append(f"파랑 강조는 {MAX_BLUE}곳까지예요(규칙서 7장, 지금 {blue}곳)")

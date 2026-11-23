@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import blog_policy
+import place_pin
 from blogpost import MAX_TAGS, STATUS_READY, Post, Segment, html_to_text, normalize_title
 from github_store import StoreError
 
@@ -38,10 +39,24 @@ KEY_PREFIX = "neo:"
 QUEUE_REL = "상태/자동발행_대기.json"
 MIRROR_REL = "상태/자동발행_기록.json"
 BLUE = "#0075c8"
+TEAL = "#168F88"       # 청록 포인트(2026-11-18 확정 토큰)
+ORANGE = "#E58A35"     # 주황 포인트
+BODY = "#333333"       # 본문 기본 글자색 — 진그레이(2026-11-18 확정)
 SECTION_RE = re.compile(r"^={5,}\n([^\n=][^\n]*)\n={5,}$", re.M)   # 블로그 섹션 도구들과 같은 머리줄 규칙
 IMAGE_LINE_RE = re.compile(r"^\s*【그림\s*(\w+)】\s*(\S+)\s*$")
 # 【장소】 네이버 지도에 나오는 이름 — 글에 지도 장소를 붙인다(장소 페이지 '블로그 리뷰'에 글이 걸리게, 10-14)
-PLACE_LINE_RE = re.compile(r"^\s*【장소】\s*(\S.*?)\s*$")
+#   주소를 함께 적으면('【장소】 이름 | 도로명주소') 발행기가 검색 결과 주소와 대조해 동명 장소 오매핑을 막는다(11-18)
+PLACE_LINE_RE = re.compile(r"^\s*【장소】\s*(\S.*?)(?:\s*[|｜]\s*(.+?))?\s*$")
+# 【지도】 해외 장소의 구글 지도 링크(네이버 지도 핀을 쓸 수 없을 때)
+MAP_LINE_RE = re.compile(r"^\s*【지도】\s*(\S.*?)\s*$")
+# 【쇼츠】 그 장소로 만든 유튜브 쇼츠 — 본문에 영상 링크를 넣는다(2026-11-23 확정)
+SHORTS_LINE_RE = re.compile(r"^\s*【쇼츠】\s*(.*?)\s*(https?://\S+)\s*$")
+# 【제휴】 쇼핑 커넥트·예약 제휴 링크 카드(본문 중간·마무리 직전 고정)
+AD_LINE_RE = re.compile(r"^\s*【제휴】\s*(.+?)\s+(https?://\S+)\s*$")
+# 【링크】 같은 블로그의 다른 글(내부 링크)
+LINK_LINE_RE = re.compile(r"^\s*【링크】\s*(.+?)\s+(https?://\S+)\s*$")
+# 【한줄평】 섹션 마지막의 조건·숫자 근거 한 줄
+ONELINER_RE = re.compile(r"^\s*【한줄평】\s*(.+?)\s*$")
 PREAMBLE_FOLDER_RE = re.compile(r"폴더\s*`([^`]+)`")
 WHEN_SHORT_RE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})\s*(?:\([^)]*\))?\s*(\d{1,2}):(\d{2})\s*$")
 WHEN_FULL_RE = re.compile(r"^\s*(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})")
@@ -96,6 +111,8 @@ def render_inline(line: str) -> str:
     out = htmllib.escape(line, quote=False)
     out = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", out)
     out = re.sub(r"\{파랑:\s*(.+?)\}", r'<span style="color:%s">\1</span>' % BLUE, out)
+    out = re.sub(r"\{청록:\s*(.+?)\}", r'<span style="color:%s">\1</span>' % TEAL, out)
+    out = re.sub(r"\{주황:\s*(.+?)\}", r'<span style="color:%s">\1</span>' % ORANGE, out)
     # 줄 끝 주소는 글자에 링크로 건다(주소 글자는 안 보이게 — 사람이 에디터로 링크 거는 모양, 연구4 3장)
     #   "… 여기서 자세히 → 글 제목 https://…"  → "… 여기서 자세히 → <a>글 제목</a>"
     #   "① 떠나기 전: 일정 글 → https://…"     → "<a>① 떠나기 전: 일정 글</a>"
@@ -111,25 +128,97 @@ def render_inline(line: str) -> str:
     return URL_RE.sub(lambda mm: _link(mm.group(0)), out)
 
 
+def _paint(html: str) -> str:
+    """본문은 진그레이 #333333 이 기본이다(2026-11-18 확정 — 검정 그대로 두지 않는다)."""
+    return f'<span style="color:{BODY}">{html}</span>'
+
+
+TABLE_ROW_RE = re.compile(r"^\s*\|(.+)\|")
+TABLE_SEP_RE = re.compile(r"^\s*\|[\s:|-]+\|\s*$")
+QUOTE_HEAD_RE = re.compile(r"^\s*>\s*(\d+)\.\s*(.+?)\s*$")
+
+
+def _cells(row: str) -> list:
+    return [c.strip() for c in row.strip().strip("|").split("|")]
+
+
+def render_table(rows: list) -> str:
+    """파이프 표( | a | b | )를 에디터에 붙는 <table> 로. 셀은 굵기만 쓴다(색·배경 금지)."""
+    body = [r for r in rows if not TABLE_SEP_RE.match(r)]
+    if not body:
+        return ""
+    head, *rest = body
+    out = ['<table style="border-collapse:collapse;width:100%">']
+    out.append("<thead><tr>" + "".join(
+        f'<th style="border:1px solid #cccccc;padding:6px"><strong>{_paint(render_inline(c))}</strong></th>'
+        for c in _cells(head)) + "</tr></thead>")
+    if rest:
+        out.append("<tbody>")
+        for r in rest:
+            out.append("<tr>" + "".join(
+                f'<td style="border:1px solid #cccccc;padding:6px">{_paint(render_inline(c))}</td>'
+                for c in _cells(r)) + "</tr>")
+        out.append("</tbody>")
+    out.append("</table>")
+    return "".join(out)
+
+
 def render_block(lines: List[str]) -> str:
     """사장님이 앱에 붙여넣을 때와 같은 모양: 한 줄 = 한 문단, 빈 줄 = 빈 문단."""
     parts = []
-    for line in lines:
-        s = line.rstrip()
-        if not s.strip():
+    i = 0
+    while i < len(lines):
+        line = lines[i].rstrip()
+        s = line.strip()
+        if TABLE_ROW_RE.match(line):
+            rows = []
+            while i < len(lines) and TABLE_ROW_RE.match(lines[i]):
+                rows.append(lines[i])
+                i += 1
+            html = render_table(rows)
+            if html:
+                parts.append(html)
+            continue
+        if not s:
             parts.append("<p><br></p>")
-        elif s.lstrip().startswith("■"):
+        elif s.startswith("■"):
             # 소제목은 에디터 소제목 모양으로(규칙서 7장 — 한 단계 크게). ■ 기호는 뺀다.
-            parts.append(f"<h3><strong>{render_inline(s.strip().lstrip('■').strip())}</strong></h3>")
-        elif s.lstrip().startswith("▶"):
+            parts.append(f"<h3><strong>{_paint(render_inline(s.lstrip('■').strip()))}</strong></h3>")
+        elif QUOTE_HEAD_RE.match(s):
+            # 번호 소제목(> 1. 코스 한눈에)도 같은 소제목 모양 + 볼드(2026-11-18 확정).
+            m = QUOTE_HEAD_RE.match(s)
+            parts.append(f"<h3><strong>{_paint(render_inline(m.group(2).strip()))}</strong></h3>")
+        elif s.startswith("▶"):
             # 핵심 숫자 한 줄은 에디터 인용구 모양으로(규칙서 7장). ▶ 기호는 뺀다.
-            parts.append(f"<blockquote><p><strong>{render_inline(s.strip().lstrip('▶').strip())}</strong></p></blockquote>")
+            parts.append(f"<blockquote><p><strong>{_paint(render_inline(s.lstrip('▶').strip()))}</strong></p></blockquote>")
+        elif ONELINER_RE.match(s):
+            # 섹션 마지막 한 줄 평 — 인용구로 눈에 띄게(기호 없이)
+            parts.append(f"<blockquote><p><strong>{_paint(render_inline(ONELINER_RE.match(s).group(1)))}</strong></p></blockquote>")
+        elif s.startswith(">"):
+            parts.append(f"<blockquote style=\"background-color:#FFF2A8\"><p>{_paint(render_inline(s.lstrip('>').strip()))}</p></blockquote>")
         else:
-            parts.append(f"<p>{render_inline(s)}</p>")
+            parts.append(f"<p>{_paint(render_inline(s))}</p>")
+        i += 1
     return "".join(parts)
 
 
 AI_NOTE_RE = re.compile(r"AI\s*(?:도움|로\s*만든|가\s*만든|로\s*정리|생성)")
+# 고지 문장은 AI 고지 규칙이 지우면 안 된다(2026-11-18 확정 — 내돈내산·제휴 고지는 발행 직전까지 살아 있어야 함)
+DISCLOSURE_GUARD = ("내돈내산", "수수료", "제휴", "협찬", "제공받")
+DISCLOSURE_WORDS = ("내돈내산", "수수료")
+
+
+def has_disclosure(body: str) -> bool:
+    """제휴 카드가 있는 글은 '내돈내산'과 '수수료' 고지가 둘 다 있어야 한다."""
+    return all(w in body for w in DISCLOSURE_WORDS)
+
+
+def _text_paragraph(label: str, url: str, kind: str) -> Segment:
+    """글자 링크로 들어가는 한 줄(오픈링크 카드·동영상 카드의 에디터 화면은 아직 모름 — 2026-11-18).
+    주소가 라벨 글자에 걸리고, 글은 끊기지 않게 라벨을 남긴다."""
+    label = (label or "").strip() or url
+    html = f"<p>{_paint(render_inline(label + ' ' + url))}</p>"
+    return Segment(kind=kind, html=html, text=html_to_text(html), url=url)
 
 
 def build_segments(body: str, errors: List[str]) -> List[Segment]:
@@ -139,17 +228,46 @@ def build_segments(body: str, errors: List[str]) -> List[Segment]:
     def flush() -> None:
         text = "\n".join(buf)
         text = re.sub(r"[ \t]*\(발행 후 링크\)", "", text)
-        text = re.sub(r"\n{3,}", "\n\n", text).strip("\n")
+        text = re.sub(r"\n{4,}", "\n\n\n", text).strip("\n")
         buf.clear()
         if text.strip():
             html = render_block(text.split("\n"))
             segments.append(Segment(kind="html", html=html, text=html_to_text(html)))
 
     for line in body.split("\n"):
+        s = line.strip()
         pm = PLACE_LINE_RE.match(line)
         if pm:
             flush()
-            segments.append(Segment(kind="place", text=pm.group(1)[:60]))
+            addr = (pm.group(2) or "").strip()
+            segments.append(Segment(kind="place", text=pm.group(1).strip()[:60],
+                                    addr_tokens=place_pin.addr_tokens(addr)))
+            continue
+        mm = MAP_LINE_RE.match(line)
+        if mm:
+            flush()
+            url = mm.group(1).strip()
+            if not place_pin.is_google_maps(url):
+                errors.append(f"【지도】 줄은 구글 지도 주소여야 해요: {url[:60]}")
+            segments.append(_text_paragraph("지도에서 위치 보기", url, "maplink"))
+            continue
+        sm = SHORTS_LINE_RE.match(line)
+        if sm:
+            flush()
+            label, url = sm.group(1).strip(), sm.group(2)
+            if not place_pin.is_youtube_shorts(url):
+                errors.append(f"【쇼츠】 줄은 유튜브 쇼츠 주소여야 해요: {url[:60]}")
+            segments.append(_text_paragraph(label or "현장 영상 보기", url, "shorts"))
+            continue
+        am = AD_LINE_RE.match(line)
+        if am:
+            flush()
+            segments.append(_text_paragraph(am.group(1).strip(), am.group(2), "ad"))
+            continue
+        lm = LINK_LINE_RE.match(line)
+        if lm:
+            flush()
+            segments.append(_text_paragraph(lm.group(1).strip(), lm.group(2), "link"))
             continue
         m = IMAGE_LINE_RE.match(line)
         if m:
@@ -160,10 +278,10 @@ def build_segments(body: str, errors: List[str]) -> List[Segment]:
             else:
                 segments.append(Segment(kind="image", image_path=nfc(name)))
             continue
-        if re.fullmatch(r"={5,}", line.strip()):
+        if re.fullmatch(r"={5,}", s):
             continue
-        if AI_NOTE_RE.search(line):
-            continue   # 사장님 방침: 'AI로 정리·AI 그림' 고지 문장은 올리지 않음
+        if AI_NOTE_RE.search(line) and not any(g in line for g in DISCLOSURE_GUARD):
+            continue   # 사장님 방침: 'AI로 정리·AI 그림' 고지 문장은 올리지 않음(고지 문장은 건드리지 않는다)
         buf.append(line)
     flush()
     return segments
@@ -281,6 +399,10 @@ class NeoStore:
         post.segments = build_segments(post.body, post.errors)
         if not any(s.kind == "html" for s in post.segments):
             post.errors.append("본문 글이 비어 있어요")
+        # 2026-11-18 확정: 제휴 카드가 있는 글은 첫 화면에 내돈내산·수수료 고지가 살아 있어야 한다.
+        # (발행기가 AI 고지 규칙으로 고지 문장을 지우던 사고를 막는 마지막 확인)
+        if any(s.kind == "ad" for s in post.segments) and not has_disclosure(post.body):
+            post.errors.append("제휴 카드가 있는 글은 '내돈내산'과 '수수료' 고지가 있어야 해요(첫 화면 고정)")
 
         img_dir = self._image_dir(p, entry, preamble)
         post.image_dir = str(img_dir) if img_dir else ""

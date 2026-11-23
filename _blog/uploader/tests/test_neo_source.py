@@ -27,6 +27,8 @@ WANSEONG = f"""목표 검색어: 테스트 코스
 {BAR}
 본문
 {BAR}
+【장소】 아부다비 그랜드 모스크 | 아부다비 야스섬 샤흐자예드로
+
 【그림 0】 테스트_00_대표.png
 
 내돈내산 · 2026년 5월 다녀온 기록이에요.
@@ -46,9 +48,9 @@ WANSEONG = f"""목표 검색어: 테스트 코스
 👉 자세히 → 지난 글 https://blog.naver.com/mose_love/224288164082
 <script>alert(1)</script> 같은 글자도 그대로 보여야 해요.
 {BAR}
-태그 (3개)
+태그 (10개)
 {BAR}
-#테스트 #렌트카여행 #달리는이기사
+#테스트 #렌트카여행 #서준의여행한입 #두바이여행 #아부다비 #렌트카 #하루코스 #입장료 #주차 #모스크
 
 {BAR}
 점검
@@ -85,17 +87,19 @@ def test_reads_blog_section_format(tmp_path):
     assert f["path"] == KEY_PREFIX + "초안/2026-10-14_테스트코스_완성본.md"
     assert post.errors == []
     assert post.title == "[테스트 ①] 렌트카로 도는 하루 코스"
-    assert post.tags == ["테스트", "렌트카여행", "달리는이기사"]
+    assert post.tags == ["테스트", "렌트카여행", "서준의여행한입", "두바이여행", "아부다비",
+                         "렌트카", "하루코스", "입장료", "주차", "모스크"]
     assert post.publish_at == datetime(2026, 10, 14, 20, 22)
     assert post.category == "두바이" and post.status == "ready"
-    assert [s.kind for s in post.segments] == ["image", "html", "image", "html"]
+    assert [s.kind for s in post.segments] == ["place", "image", "html", "image", "html"]
     assert post.image_paths == ["테스트_00_대표.png", "테스트_01_지도.png"]
-    first, second = post.segments[1].html, post.segments[3].html
+    first, second = post.segments[2].html, post.segments[4].html
     assert "<strong>굵게</strong>" in first
     assert '<span style="color:#0075c8">파란 글씨</span>' in first
-    assert "<blockquote><p><strong>하루 비용 · 400디르함</strong></p></blockquote>" in first
-    assert "<h3><strong>하루 순서</strong></h3>" in first
-    assert "← 이전 편: ① 준비</p>" in first and "발행 후 링크" not in first   # 자리표시는 뺌
+    assert "<blockquote><p><strong><span style=\"color:#333333\">하루 비용 · 400디르함</span></strong></p></blockquote>" in first
+    assert "<h3><strong><span style=\"color:#333333\">하루 순서</span></strong></h3>" in first
+    assert first.count('color:#333333') >= 3          # 본문 기본 글자색은 진그레이(2026-11-18 확정)
+    assert "← 이전 편: ① 준비</span></p>" in first and "발행 후 링크" not in first   # 자리표시는 뺌
     assert '→ <a href="https://blog.naver.com/mose_love/224288164082">지난 글</a>' in second
     assert ">https://blog.naver.com" not in second            # 주소 글자는 안 보이게
     assert "&lt;script&gt;" in second and "<script>" not in second
@@ -267,13 +271,13 @@ def test_ai_note_line_dropped():
 def test_policy_gate_blocks_rule_breaking_post(tmp_path):
     """규칙서 정책(NEO 금지 표현·빈칸, AEO 질문 수, SEO 태그·파랑, 검문소 걸림)에 걸리면 올리지 않는다."""
     bad = (WANSEONG.replace("렌트카로 도는 하루 코스", "렌트카 총정리")
-           .replace("#달리는이기사", "#여행")
+           .replace("#서준의여행한입", "#여행")
            .replace("■ 하루 순서", "[확인 필요]\n\n■ 자주 묻는 질문\n\n1. 가요?\n2. 와요?\n3. 돼요?\n4. 싸요?\n\n■ 하루 순서"))
     root = make_neo(tmp_path, text=bad)
     (root / "상태" / "검문소_2026-10-14_테스트코스_완성본.json").write_text('{"걸림": 2}', encoding="utf-8")
     _, _, post = load_one(root)
     joined = " / ".join(post.errors)
-    for want in ("금지 표현", "총정리", "빈칸", "자주 묻는 질문은 3개까지", "#달리는이기사", "검문소 걸림 2"):
+    for want in ("금지 표현", "총정리", "빈칸", "자주 묻는 질문은 3개까지", "#서준의여행한입", "검문소 걸림 2"):
         assert want in joined, want
 
 
@@ -307,10 +311,12 @@ def test_series_numbers_are_not_similar():
 
 
 def test_place_line_becomes_place_segment(tmp_path):
-    text = WANSEONG.replace("【그림 1】", "【장소】 아부다비 그랜드 모스크\n\n【그림 1】", 1)
+    text = WANSEONG.replace("【그림 1】", "【장소】 두바이 프레임 | 두바이 자벨 1로\n\n【그림 1】", 1)
     root = make_neo(tmp_path, text=text)
     _, _, post = load_one(root)
     kinds = [s.kind for s in post.segments]
     assert "place" in kinds and kinds.index("place") < kinds.index("image", 1)
-    assert [s.text for s in post.segments if s.kind == "place"] == ["아부다비 그랜드 모스크"]
+    names = [s.text for s in post.segments if s.kind == "place"]
+    assert names == ["아부다비 그랜드 모스크", "두바이 프레임"]
+    assert post.segments[0].addr_tokens == ["샤흐자예드로"]
     assert "【장소】" not in "".join(s.html for s in post.segments)

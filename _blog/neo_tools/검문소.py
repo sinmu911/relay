@@ -5,7 +5,9 @@
 읽기만 한다(원본 글·계획표를 바꾸지 않음). 결과: 항목별 OK/주의/걸림 + 위치. 걸림이 있으면 종료코드 1.
  B1 금지 표현·빈칸([확인 필요]·[사장님 한 줄])·리얼엔진 걸림
  B2 근거 없는 숫자: 본문의 단위 붙은 숫자가 재료·시리즈계획·같은 주제 초안·점검 메모에 있는지 (근거 묶음이 완전하지 않아 '주의')
- B3 형식: 내돈내산 줄 · AI 고지 · 자주 묻는 질문 ≤ 3 · 파랑 강조 ≤ 5 · 표 3열 이하 · 태그 10개 + 달리는이기사
+ B3 형식: 도입부 내돈내산 줄 · 자주 묻는 질문 ≤ 3 · 파랑 강조 ≤ 5 · 표 3열 이하 · 태그 10~15개 + #서준의여행한입
+    (2026-11-18 확정: AI 고지 강제 조항 삭제 — 내돈내산·방문일 + 제휴 수수료 고지만. 구형 #달리는이기사 자동 주입 중단)
+ B16~B28 코스형 게이트 — gates.py (코스 구조·슬롯·고지·문체비율·이모지·태그·간격·볼드·색·SEO/AEO/GEO)
  B4 그림: 번호 순서 · 파일 존재 · 연달아 붙음 · 안 쓴 그림
  B5 시리즈: 제목 [여행지 ①~④] · 목차(지금 글) · 이전/다음 편 · 계획표 링크와 일치 · 남은 '(발행 후 링크)'
  B8 예약 추천 시각(주마다 요일·분 다르게, 지난 추천과 겹치지 않게) — 상태/예약기록.json
@@ -16,7 +18,7 @@
  운영 점검(블로그 전체): python3 검문소.py --운영 [--json]
   B6 발행 감지(계획표 갱신 제안·채울 링크) · B7 다음 2편 후보 · B9 메인 목록 제안(메인/메인글_목록_제안.md) — 모두 제안만, 원본 불변
 """
-import datetime, glob, importlib.util, json, os, re, sys, unicodedata
+import datetime, glob, importlib.util, json, os, re, sys, tempfile, unicodedata
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 B = os.path.dirname(HERE)
@@ -36,6 +38,45 @@ def _mod(name):
     sp = importlib.util.spec_from_file_location(name, os.path.join(HERE, name + ".py"))
     m = importlib.util.module_from_spec(sp); sp.loader.exec_module(m)
     return m
+
+
+# 코스형 게이트(B16~B28)는 이름이 영문인 모듈이라 보통 import 로 부른다.
+# (gates.py 가 seo_aeo_geo.py 를 import 하므로 폴더를 sys.path 에 넣어 둔다.)
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import gates  # noqa: E402
+
+
+def _real_input(path, body):
+    """리얼엔진에 넘길 사본 — 표줄과 【…】 표시줄은 문장이 아니라 뺀다(표 행이 '같은 어미 연속'으로 오탐됨).
+    원본 파일은 건드리지 않고 임시 파일을 쓴다. 돌려줌: (경로, 임시파일 여부)"""
+    if not any(l.strip().startswith("|") for l in body.split("\n")):
+        return path, False
+    kept = [("" if l.strip().startswith(("|", "【")) else l) for l in body.split("\n")]
+    tmp = os.path.join(tempfile.gettempdir(), "검문소_표제외.md")
+    try:
+        open(tmp, "w", encoding="utf-8").write("=" * 20 + "\n본문\n" + "=" * 20 + "\n" + "\n".join(kept))
+    except OSError:
+        return path, False
+    return tmp, True
+
+
+def _norm_real(r, course):
+    """말투 지표 중 융합 규칙과 충돌하는 것을 '참고'로 내린다.
+
+    리얼엔진은 '합니다체 비율'을 10% 이하로 본다(개인 말투 표본). 융합 템플릿은 정보 문단을
+    '~습니다', 경험 문단을 '~어요'로 4:6 섞는 것이 규칙이고(2026-11-18 확정), 그 판정은 B19가 잰다.
+    두 기준을 동시에 걸면 모든 코스형 글이 막히므로, 리얼엔진의 해당 지표만 참고로 내린다.
+    """
+    if not course or not r or "지표" not in r:
+        return r
+    for x in r["지표"]:
+        if "합니다체" in str(x.get("지표", "")) and x.get("판정") != "참고":
+            x["판정"] = "참고"
+            x["비고"] = "융합 규칙(정보 4 : 경험 6)은 검문소 B19가 잰다"
+    r["걸림"] = sum(x.get("판정") == "걸림" for x in r["지표"])
+    r["주의"] = sum(x.get("판정") == "주의" for x in r["지표"])
+    return r
 
 
 def sections(text):
@@ -87,6 +128,12 @@ def evidence(path, sec):
                     continue
                 if sections(t).get("제목", "").strip().startswith(f"[{sm.group(1)} "):
                     parts.append(t)
+    # 코스형: 같은 폴더의 course.json · fact_report.json 이 곧 근거다(코스 로직 §8-1 B2)
+    for extra in ("course.json", "fact_report.json"):
+        cf = os.path.join(os.path.dirname(path), extra)
+        if os.path.isfile(cf):
+            try: parts.append(open(cf, encoding="utf-8").read())
+            except Exception: pass
     ev = nfc("\n".join(parts))
     return {v for v, _ in numbers(ev)} | set(re.findall(r"\d[\d,]*(?:\.\d+)?", ev.replace(",", "")))
 
@@ -100,6 +147,7 @@ def check(path):
     res = []
     real = _mod("리얼엔진")
     is_main = "메인" in nfc(os.path.basename(os.path.dirname(os.path.abspath(path))))  # 메인(링크 모음) 글은 일반 글 형식 규칙 일부 제외
+    is_course_body = gates.is_course(body)
 
     # ---- B1 ----
     prose = "\n".join(l for l in lines if not EMO.match(l.strip()[:2] or " ") and not l.strip().startswith(("http", "#")))
@@ -109,7 +157,11 @@ def check(path):
     holes = [(i + 1 + OFF, l.strip()[:40]) for i, l in enumerate(lines) if re.search(r"\[확인 필요|\[사장님 한 줄", l)]
     res.append(item("B1", "빈칸([확인 필요]·[사장님 한 줄])", "걸림" if holes else "OK", f"{len(holes)}곳", holes[:5]))
     try:
-        r = real.run(path)
+        rp, tmp = _real_input(path, body)
+        r = _norm_real(real.run(rp), is_course_body)
+        if tmp:
+            try: os.unlink(rp)
+            except OSError: pass
         # 말투 수치(숫자 개수·감정 개수 등)는 우리 표본에서 나온 기준이라 '참고'로만(연구6). 걸림은 그대로.
         res.append(item("B1", "리얼엔진", "걸림" if r.get("걸림") else ("참고" if r.get("주의") else "OK"),
                         f"걸림 {r.get('걸림')} · 참고 {r.get('주의')}",
@@ -136,9 +188,20 @@ def check(path):
     # ---- B3 ----
     nonempty = [l.strip() for l in lines if l.strip() and not FIG.match(l.strip())]
     if not is_main:
-        res.append(item("B3", "둘째 줄 내돈내산", "OK" if nonempty and nonempty[0].startswith("내돈내산") else "걸림", (nonempty[0][:30] if nonempty else "")))
-    tail = "\n".join(nonempty[-6:])
-    res.append(item("B3", "끝맺음 위 AI 고지", "OK" if re.search(r"AI", tail) else ("주의" if is_main else "걸림")))
+        # 도입부(첫 번호 소제목 전) 어디든 '내돈내산 + 방문일'이 있으면 된다(융합 템플릿은 도입 3문단째).
+        intro = []
+        for l in lines:
+            if l.strip().startswith(">"):
+                break
+            if l.strip() and not FIG.match(l.strip()) and not l.strip().startswith(("■", "▶", "────")):
+                intro.append(l.strip())
+        intro_text = "\n".join(intro[:8])
+        has_mine = "내돈내산" in intro_text
+        has_date = bool(re.search(r"\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일|\d{4}-\d{2}-\d{2}", intro_text))
+        res.append(item("B3", "도입부 내돈내산·방문일", "OK" if has_mine and has_date else "걸림",
+                        (intro_text.split("\n")[0][:40] if intro_text else "") +
+                        ("" if has_mine else " · 내돈내산 없음") + ("" if has_date else " · 방문일 없음")))
+    # AI 고지: 2026-11-18 서준님 확정으로 요구하지 않는다(강제 조항 삭제). 대신 아래 B18이 내돈내산·제휴 고지를 본다.
     faq_i = next((i for i, l in enumerate(lines) if "자주 묻는 질문" in l), None)
     nfaq = 0
     if faq_i is not None:
@@ -150,14 +213,22 @@ def check(path):
     res.append(item("B3", "파랑 강조 ≤ 5", "OK" if blue <= 5 else "걸림", f"{blue}곳"))
     wide = [(i + 1 + OFF, l[:30]) for i, l in enumerate(lines) if l.strip().startswith("|") and l.strip().count("|") - 1 > 3]
     res.append(item("B3", "표 3열 이하", "OK" if not wide else "걸림", "", wide[:3]))
-    tags = re.findall(r"#\S+", sec.get("태그", ""))
-    ok = len(tags) == 10 and any("달리는이기사" in t for t in tags) and len(set(tags)) == len(tags)
-    res.append(item("B3", "태그 10개 + 달리는이기사", "OK" if ok else "걸림", f"{len(tags)}개" + ("" if any("달리는이기사" in t for t in tags) else " · 달리는이기사 없음")))
+    tags = [t.lstrip("#") for t in re.findall(r"#\S+", sec.get("태그", ""))]
+    brand = gates.BRAND_TAG
+    ok = (10 <= len(tags) <= 15) and brand in tags and len(set(tags)) == len(tags)
+    res.append(item("B3", f"태그 10~15개 + #{brand}", "OK" if ok else "걸림",
+                    f"{len(tags)}개" + ("" if brand in tags else f" · #{brand} 없음")
+                    + ("" if len(set(tags)) == len(tags) else " · 중복")
+                    + (" · 옛 태그 #달리는이기사" if gates.LEGACY_TAG in tags else "")))
 
     # ---- B4 ----
     figs = [(i, FIG.match(l.strip())) for i, l in enumerate(lines) if FIG.match(l.strip())]
     key = "_".join(nfc(os.path.basename(path)).split("_")[:2])
     dirs = [d for d in glob.glob(os.path.join(os.path.dirname(path), "*")) if os.path.isdir(d) and nfc(os.path.basename(d)).startswith(key) and "이미지" in nfc(os.path.basename(d))]
+    if not dirs:    # 코스형 폴더 구조(courses/<코스>/완성본.md + 이미지/)도 같은 글로 본다
+        alt = os.path.join(os.path.dirname(os.path.abspath(path)), "이미지")
+        if os.path.isdir(alt):
+            dirs = [alt]
     if is_main:
         dirs = [os.path.dirname(os.path.abspath(path))]
     have = {nfc(f) for d in dirs for f in os.listdir(d)}
@@ -249,6 +320,15 @@ def check(path):
                     "" if me in picked else "새 글이면 쓰기 전에 python3 도구/말투뽑기.py " + me[:40]))
     if "_리얼고침" in me:
         res.append(item("B15", "리얼고침 본", "주의", "자동 고침 본은 원본보다 걸림이 많았어요(연구7) — 발행은 원본 완성본으로"))
+
+    # ---- B16~B28 코스형 게이트 (gates.py) ----
+    try:
+        for x in gates.run(body, title, tags):
+            if OFF:
+                x["위치"] = [(n + OFF, s) for n, s in x.get("위치", [])] if x.get("위치") else []
+            res.append(x)
+    except Exception as e:   # 게이트 하나가 죽어도 검문소 전체가 멈추지 않게
+        res.append(item("B16", "코스형 게이트", "주의", f"게이트 실행 실패 {type(e).__name__}: {e}"))
 
     # ---- B8 ----
     res.append(item("B8", "예약 추천 시각", "OK", suggest_time()))
@@ -425,6 +505,10 @@ def mainlist(items=None, write=True):
     """B9: 메인 글 목록 점검 — 메인에 없는 글을 나라 구역·분류 이모지와 함께 제안본으로. 원본 메인 글은 안 바꿈."""
     items = items if items is not None else rss_items()
     p = os.path.join(B, "메인", "메인글_완성본.md")
+    if not os.path.isfile(p):
+        return {"메인 링크 수": 0, "추가 제안": [], "글 목록에 안 보이는 메인 링크": [], "숫자 줄": "",
+                "주제 밖 글(메인 제외·비공개 권장)": [], "제안 파일": "",
+                "안내": f"메인 글 파일이 없어요(블로그_NEO 폴더에서 실행해야 B9가 돕니다): {p}"}
     t = nfc(open(p, encoding="utf-8").read())
     have = set(re.findall(r"mose_love/(\d+)", t))
     heads = [l[1:].strip() for l in t.split("\n") if l.startswith("■ ") and re.search(r"[·]|[가-힣]{2,}", l) and "읽으면" not in l]

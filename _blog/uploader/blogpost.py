@@ -41,10 +41,13 @@ MD_EXTENSIONS = ["nl2br", "sane_lists", "fenced_code", "tables"]  # nl2br: 줄�
 
 @dataclass
 class Segment:
-    kind: str                # "html" · "image" · "place"(네이버 지도 장소, text 에 장소 이름)
+    kind: str                # "html" · "image" · "place"(네이버 지도 장소) · "maplink"(해외 구글 지도)
+                             # · "shorts"(유튜브 쇼츠) · "ad"(제휴 카드) · "link"(내부 링크)
     html: str = ""
-    text: str = ""           # html 의 글자만(붙여넣기 확인용)
+    text: str = ""           # html 의 글자만(붙여넣기 확인용) / place·ad·link 는 화면에 보일 글자
     image_path: str = ""     # 블로그 폴더 기준 경로 (images/xxx.jpg)
+    url: str = ""            # place(없음) · maplink·shorts·ad·link 가 가리키는 주소
+    addr_tokens: List[str] = field(default_factory=list)   # place: 검색 결과 주소와 대조할 토큰(시:군:구 + 도로명)
 
 
 @dataclass
