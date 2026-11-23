@@ -73,11 +73,19 @@ def test_photo_not_separated_by_blank_line_blocks():
     assert b25["판정"] == "걸림"
 
 
-def test_heading_without_bold_blocks():
+def test_heading_without_bold_mark_is_warning_not_block():
+    """발행기는 소제목을 언제나 굵게 넣는다 → 원본 표시가 없으면 주의까지만."""
     body, title, tags = body_of()
     bad = body.replace("> 1. **코스 한눈에**", "> 1. 코스 한눈에")
     b26 = next(i for i in gates.run(bad, title, tags) if i["코드"] == "B26")
-    assert b26["판정"] == "걸림" and "코스 한눈에" in b26["내용"]
+    assert b26["판정"] == "주의" and "코스 한눈에" in b26["내용"]
+
+
+def test_heading_replaced_by_color_blocks():
+    body, title, tags = body_of()
+    bad = body.replace("> 1. **코스 한눈에**", "> 1. {주황: 코스 한눈에}")
+    b26 = next(i for i in gates.run(bad, title, tags) if i["코드"] == "B26")
+    assert b26["판정"] == "걸림" and "색으로 대신" in b26["내용"]
 
 
 def test_black_body_color_and_color_spam_blocked():

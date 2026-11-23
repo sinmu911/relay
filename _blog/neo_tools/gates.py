@@ -395,7 +395,15 @@ def b25_block_spacing(body: str) -> dict:
 
 # ── B26 소제목 볼드 ────────────────────────────────────
 def b26_heading_bold(body: str) -> dict:
-    heads, bad = [], []
+    """소제목은 볼드로 나가야 한다.
+
+    발행기(neo_source.render_block)는 `■`·`> N.` 소제목을 **언제나 굵은 h3**로 넣는다.
+    그래서 이 게이트는 두 가지를 나눠 본다.
+      - 걸림: 소제목을 **색으로 대신한** 경우(색만 있는 줄은 h3 로 렌더되지 않아 굵지도 소제목도 아니다)
+      - 주의: 원본에 `**굵게**` 표시가 없는 경우(출력은 굵지만 원본도 맞춰 두는 게 좋다)
+    이렇게 나누지 않으면 예전 완성본(■ 소제목)이 전부 발행 차단된다 — 출력은 이미 굵다.
+    """
+    heads, colored, weak = [], [], []
     for i, l in enumerate(_lines(body)):
         s = l.strip()
         m = HEADING_RE.match(s)
@@ -405,12 +413,19 @@ def b26_heading_bold(body: str) -> dict:
         if FAQ_Q_RE.match(text):
             continue
         heads.append(text)
-        if not re.search(r"\*\*.+?\*\*", text):
-            bad.append((i + 1, text[:30]))
+        has_bold = bool(re.search(r"\*\*.+?\*\*", text))
+        has_color = bool(ANY_COLOR_TOKEN_RE.search(text))
+        if has_color and not has_bold:
+            colored.append((i + 1, text[:30]))
+        elif not has_bold:
+            weak.append((i + 1, text[:30]))
     if not heads:
         return item("B26", "소제목 볼드", "참고", "소제목 없음(해당 없음)")
-    detail = f"{len(heads)}개 중 볼드 아님 {len(bad)}개" + (f" — '{bad[0][1]}'" if bad else "")
-    return item("B26", "소제목 볼드", "걸림" if bad else "OK", detail, bad[:5])
+    if colored:
+        return item("B26", "소제목 볼드", "걸림",
+                    f"소제목을 색으로 대신했어요({colored[0][1]}) — 굵게 쓰세요", colored[:5])
+    detail = f"{len(heads)}개" + (f" · 원본에 **굵게** 표시 없음 {len(weak)}개('{weak[0][1]}')" if weak else "")
+    return item("B26", "소제목 볼드", "주의" if weak else "OK", detail, weak[:5])
 
 
 # ── B27 본문 색·강조 ──────────────────────────────────
