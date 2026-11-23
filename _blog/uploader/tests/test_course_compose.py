@@ -86,3 +86,18 @@ def test_closing_and_faq_are_three_questions():
     faq = rep.body.split("자주 묻는 질문")[1]
     assert len([l for l in faq.split("\n") if re.match(r"^\d\. .+\?$", l.strip())]) == 3
     assert "댓글로" in rep.body
+
+
+def test_review_note_is_carried_as_first_person_paragraph():
+    """리뷰를 보고 쓴 1인칭 문장은 조립기가 그대로 넣는다(만들어 내지 않는다)."""
+    c = sample_course()
+    c["places"][0]["reviews"]["note"] = "리뷰에서 맵다고 해서 긴장했는데 제 기준으로는 보통이었어요."
+    rep = compose(c)
+    assert "리뷰에서 맵다고 해서 긴장했는데" in rep.body
+
+
+def test_missing_review_note_adds_nothing():
+    c = sample_course()
+    c["places"][0]["reviews"].pop("note", None)
+    rep = compose(c)
+    assert "리뷰에서" not in rep.body

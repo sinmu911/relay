@@ -302,6 +302,11 @@ def compose(course: dict, facts: Optional[dict] = None, style: Optional[dict] = 
             L += [f"【쇼츠】 {label} {shorts['url']}", ""]
         else:
             omitted.append(f"{p.get('name')} 쇼츠 — 영상이 아직 없어 본문 영상 줄을 빼고 썼어요")
+        # 리뷰를 보고 쓴 1인칭 한 문단(2026-11-23 확정) — 사람이 쓴 문장만 넣는다.
+        # 조립기가 리뷰 키워드로 문장을 만들면 '먹어보지 않은 메뉴의 맛'이 되어 F13에 걸린다.
+        note = str((p.get("reviews") or {}).get("note") or "").strip()
+        if note:
+            L += [note, ""]
         if len(story) > 1:
             fig2 = next_fig(str(p.get("name", "")))
             if fig2:

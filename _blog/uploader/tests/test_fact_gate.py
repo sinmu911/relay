@@ -137,3 +137,10 @@ def test_taste_claim_for_ordered_menu_passes():
     c = sample_course()
     body = "샘플덮밥은 간이 세지 않고 딱 맞았습니다."
     assert fact_gate.claim_items(body, c)[0]["판정"] == "OK"
+
+
+def test_review_note_claiming_unordered_menu_is_blocked():
+    """리뷰 문장을 빌려 먹어보지 않은 메뉴를 단정하면 F13."""
+    c = sample_course()
+    note = "샘플튀김은 정말 바삭했습니다."
+    assert fact_gate.claim_items(note, c)[0]["판정"] == "BLOCK"
