@@ -11,7 +11,7 @@ self.addEventListener('fetch', e => {
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) { d = {body: e.data ? e.data.text() : ''}; }
-  const opt = {body: d.body || '', icon: 'icon-192.png', badge: 'icon-192.png', tag: d.tag || 'relay', renotify: true,
+  const opt = {body: d.body || '', icon: 'icon-192-v2.png', badge: 'icon-192-v2.png', tag: d.tag || 'relay', renotify: true,
                silent: !!d.silent, requireInteraction: !!d.sticky, data: {url: './?app=1'}};
   if (!d.silent) opt.vibrate = [200, 100, 200];
   e.waitUntil(self.registration.showNotification(d.title || '중계현황', opt));
