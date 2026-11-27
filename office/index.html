@@ -426,7 +426,7 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;max-widt
       <section class="card office" id="officePanel" aria-label="비서실 현황">
         <div class="office-head">
           <span class="t">🏢 7인 비서실</span>
-          <span class="s" id="officeSub">피클 팀 3석 · AI 팀 4석</span>
+          <span class="s" id="officeSub">피클 3석 · AI 4석 · 책상을 누르면 그 사람 활동만 모아 봐요</span>
           <span class="grow"></span>
           <button class="mini" id="collapse" type="button" aria-expanded="true">접기</button>
         </div>
@@ -1098,7 +1098,7 @@ function buildUsageCard(o) {
 
   card.append(gauge("세션 한도", o.session, o.sessionLabel));
   card.append(gauge("주간 한도", o.weekly, o.weeklyLabel));
-  card.append(gauge("무료 사용권", o.free, o.freeLabel));
+  if (o.team !== "free") card.append(gauge("무료 사용권", o.free, o.freeLabel));
 
   const foot = document.createElement("div");
   foot.className = "uc-foot";
