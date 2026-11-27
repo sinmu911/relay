@@ -218,14 +218,14 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;max-widt
 .seat .bubble::after{content:"";position:absolute;left:50%;bottom:-4px;width:7px;height:7px;background:#fff;
   border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:translateX(-50%) rotate(45deg)}
 .stage{position:relative;display:flex;flex-direction:column;align-items:center;width:100%}
-.char-wrap{width:clamp(46px,6.2vw,80px);display:grid;place-items:center}
+.char-wrap{width:clamp(46px,6.6vw,82px);display:grid;place-items:center}
 .char-wrap svg{width:100%;height:auto;display:block;filter:drop-shadow(0 4px 5px rgba(90,70,50,.10))}
 .char .bob{transform-box:fill-box;transform-origin:50% 100%;animation:bob 5s ease-in-out infinite}
 .seat[data-state="working"] .char .bob{animation-duration:1.9s}
 @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 .char .eyes{transform-box:fill-box;transform-origin:center;animation:blink 6.5s infinite}
 @keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.12)}}
-.desk{display:block;position:relative;width:100%;max-width:108px;margin-top:-6px;z-index:3}
+.desk{display:block;position:relative;width:100%;max-width:118px;margin-top:-6px;z-index:3}
 .monitor{display:block;width:42%;margin:0 auto -2px;aspect-ratio:16/10;border-radius:4px 4px 2px 2px;
   background:linear-gradient(160deg,#6f7080,#4e4f5e);border:2px solid #494a58;
   box-shadow:inset 0 0 0 2px #8b8c9c,0 2px 5px rgba(60,50,40,.16)}
