@@ -525,7 +525,7 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;
         </div>
         <form class="composer" id="form">
           <div class="row">
-            <textarea id="input" rows="1" maxlength="2000" placeholder="하고 싶은 말을 적어 주세요 (태그 없으면 전체에게)" aria-label="메시지 입력"></textarea>
+            <textarea id="input" rows="1" maxlength="2000" placeholder="태그 없으면 전체에게 전달돼요" aria-label="메시지 입력"></textarea>
             <button id="send" type="submit" aria-label="보내기">↑</button>
           </div>
         </form>
@@ -1130,7 +1130,7 @@ formEl.addEventListener("submit", async (e) => {
 });
 autoGrow();
 sendBtn.disabled = true;
-if (window.matchMedia("(max-width:900px)").matches) inputEl.placeholder = "메시지 입력 (태그 없으면 전체에게)";
+if (window.matchMedia("(max-width:900px)").matches) inputEl.placeholder = "태그 없으면 전체에게 전달돼요";
 
 feedEl.addEventListener("scroll", () => {
   if (nearBottom()) {
