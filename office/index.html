@@ -113,17 +113,20 @@ main{flex:1 1 auto;min-height:0;display:grid;gap:12px;padding:12px;
 .office.collapsed{align-self:start;flex:0 0 auto}
 
 .room{position:relative;flex:1 1 auto;min-height:268px;overflow:hidden;background:linear-gradient(#fdf8f0,#f7ecdd)}
-.wall{position:absolute;inset:0 0 31% 0;background:
+.wall{position:absolute;inset:0 0 36% 0;background:
+  repeating-linear-gradient(90deg,rgba(120,90,60,.035) 0 1px,transparent 1px 26px),
   radial-gradient(70% 60% at 78% 0%,rgba(244,178,122,.16),transparent 70%),
   linear-gradient(#fdf9f3,#f6ecdf)}
 .wall::after{content:"";position:absolute;left:0;right:0;bottom:0;height:7px;background:#efdfc9;box-shadow:inset 0 1px 0 #fff}
-.floor{position:absolute;left:0;right:0;bottom:0;height:31%;
+.floor{position:absolute;left:0;right:0;bottom:0;height:36%;
   background:linear-gradient(#e9d3b6,#dcc0a0);
   box-shadow:inset 0 6px 10px -6px rgba(120,90,60,.35)}
-.floor::after{content:"";position:absolute;inset:0;opacity:.5;
-  background:repeating-linear-gradient(90deg,transparent 0 46px,rgba(160,124,84,.18) 46px 48px)}
+.floor::before{content:"";position:absolute;left:50%;top:14%;transform:translateX(-50%);width:58%;height:74%;
+  border-radius:50%;background:radial-gradient(closest-side,#f6e6d6,rgba(246,230,214,.55) 70%,transparent 72%);opacity:.85}
+.floor::after{content:"";position:absolute;inset:0;opacity:.45;pointer-events:none;
+  background:repeating-linear-gradient(90deg,transparent 0 46px,rgba(160,124,84,.16) 46px 48px)}
 
-.win{position:absolute;left:6%;top:9%;width:27%;max-width:138px;aspect-ratio:1.15/1;border-radius:9px;
+.win{position:absolute;left:5%;top:7%;width:30%;max-width:186px;aspect-ratio:1.25/1;border-radius:10px;
   background:linear-gradient(#cfeaf8,#eaf7fd);border:3px solid #fff;box-shadow:0 0 0 1px #e6d8c4,0 6px 14px rgba(120,150,170,.16);overflow:hidden}
 .win .sun{position:absolute;right:14%;top:14%;width:22%;aspect-ratio:1;border-radius:50%;
   background:radial-gradient(circle,#ffd88a,#ffc45e);box-shadow:0 0 14px #ffe0a0}
@@ -133,19 +136,29 @@ main{flex:1 1 auto;min-height:0;display:grid;gap:12px;padding:12px;
 .win .bar{position:absolute;background:#fff;opacity:.95}
 .win .bar.v{left:50%;top:0;bottom:0;width:3px;transform:translateX(-50%)}
 .win .bar.h{top:52%;left:0;right:0;height:3px}
-.shelf{position:absolute;right:9%;top:12%;width:22%;max-width:112px;height:7px;border-radius:3px;background:#e2c8a6;box-shadow:0 3px 0 #d3b58c}
-.shelf i{position:absolute;bottom:7px;width:13%;height:26px;border-radius:3px 3px 0 0;background:#c9b6d9}
-.shelf i:nth-child(1){left:4%;height:22px;background:#b8a4e3}
-.shelf i:nth-child(2){left:22%;height:27px;background:#e8b98d}
-.shelf i:nth-child(3){left:42%;height:19px;background:#9fcfdf}
-.shelf i:nth-child(4){left:60%;height:24px;background:#d9b0b0}
-.board{position:absolute;right:7%;top:31%;width:25%;max-width:132px;aspect-ratio:1.6/1;border-radius:6px;
+.shelf{position:absolute;right:8%;top:9%;width:24%;max-width:150px;height:8px;border-radius:3px;background:#e2c8a6;box-shadow:0 3px 0 #d3b58c}
+.shelf i{position:absolute;bottom:8px;width:13%;height:34px;border-radius:3px 3px 0 0;background:#c9b6d9}
+.shelf i:nth-child(1){left:4%;height:30px;background:#b8a4e3}
+.shelf i:nth-child(2){left:22%;height:36px;background:#e8b98d}
+.shelf i:nth-child(3){left:42%;height:26px;background:#9fcfdf}
+.shelf i:nth-child(4){left:60%;height:32px;background:#d9b0b0}
+.board{position:absolute;right:7%;top:27%;width:27%;max-width:158px;aspect-ratio:1.6/1;border-radius:6px;
   background:#fff;border:3px solid #e7d7c1;display:grid;place-items:center;box-shadow:0 4px 10px rgba(120,90,60,.10)}
-.board span{font-size:clamp(6px,1.05vw,9px);font-weight:800;letter-spacing:.14em;color:#b3aa9c;transform:rotate(-4deg)}
-.plant{position:absolute;left:5%;bottom:36%;width:58px;height:62px}
-.plant .pot{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:26px;height:22px;border-radius:3px 3px 9px 9px;
+.board span{font-size:clamp(6px,1vw,9px);font-weight:800;letter-spacing:.14em;color:#b3aa9c;transform:rotate(-4deg)}
+.lamp{position:absolute;left:50%;top:0;transform:translateX(-50%);width:2px;height:15%;background:#dccab0}
+.lamp .shade{position:absolute;left:50%;bottom:-16px;transform:translateX(-50%);width:clamp(34px,5vw,62px);height:clamp(16px,2.4vw,28px);
+  border-radius:50% 50% 10px 10px/74% 74% 26% 26%;background:linear-gradient(#f0d6b4,#dcb387);box-shadow:inset 0 3px 0 rgba(255,255,255,.45)}
+.lamp .glow{position:absolute;left:50%;bottom:-46px;transform:translateX(-50%);width:clamp(60px,9vw,120px);height:clamp(30px,5vw,60px);
+  border-radius:50%;background:radial-gradient(closest-side,rgba(255,214,150,.42),transparent 75%)}
+.clock{position:absolute;left:40%;top:17%;width:clamp(30px,3.6vw,46px);aspect-ratio:1;border-radius:50%;
+  background:#fff;border:3px solid #e7d7c1;box-shadow:0 3px 8px rgba(120,90,60,.10)}
+.clock i{position:absolute;left:50%;top:50%;height:2px;background:#b9ae9d;border-radius:2px;transform-origin:0 50%}
+.clock .h{width:28%;transform:rotate(-62deg)}
+.clock .m{width:38%;transform:rotate(24deg)}
+.plant{position:absolute;left:4%;bottom:37%;width:66px;height:74px}
+.plant .pot{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:28px;height:24px;border-radius:3px 3px 9px 9px;
   background:linear-gradient(#e0a985,#cf9470)}
-.plant i{position:absolute;left:50%;bottom:18px;width:16px;height:26px;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;
+.plant i{position:absolute;left:50%;bottom:20px;width:18px;height:30px;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;
   background:#8fbf90;transform-origin:bottom center}
 .plant .p1{transform:translateX(-50%) rotate(-28deg)}
 .plant .p2{transform:translateX(-50%) rotate(0)}
@@ -153,7 +166,7 @@ main{flex:1 1 auto;min-height:0;display:grid;gap:12px;padding:12px;
 
 .seats{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;justify-content:space-around;
   gap:2px;padding:0 8px 4px;z-index:4}
-.seat{flex:1 1 0;max-width:230px;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;
+.seat{flex:1 1 0;max-width:264px;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;
   background:transparent;border:0;border-radius:16px;padding:6px 3px 6px;cursor:pointer;
   transition:background .18s,transform .18s;text-align:center}
 .seat:hover{background:rgba(255,255,255,.55)}
@@ -174,14 +187,14 @@ main{flex:1 1 auto;min-height:0;display:grid;gap:12px;padding:12px;
 .seat .bubble::after{content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;background:#fff;
   border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:translateX(-50%) rotate(45deg)}
 .stage{position:relative;display:flex;flex-direction:column;align-items:center;width:100%}
-.char-wrap{width:clamp(46px,7.6vw,84px);display:grid;place-items:center}
+.char-wrap{width:clamp(52px,9vw,112px);display:grid;place-items:center}
 .char-wrap svg{width:100%;height:auto;display:block;filter:drop-shadow(0 4px 5px rgba(90,70,50,.10))}
 .char .bob{transform-box:fill-box;transform-origin:50% 100%;animation:bob 5s ease-in-out infinite}
 .seat[data-state="working"] .char .bob{animation-duration:1.9s}
 @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
 .char .eyes{transform-box:fill-box;transform-origin:center;animation:blink 6.5s infinite}
 @keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.12)}}
-.desk{display:block;position:relative;width:100%;max-width:154px;margin-top:-8px;z-index:3}
+.desk{display:block;position:relative;width:100%;max-width:176px;margin-top:-8px;z-index:3}
 .monitor{display:block;width:46%;margin:0 auto -2px;aspect-ratio:16/10;border-radius:5px 5px 2px 2px;
   background:linear-gradient(160deg,#6f7080,#4e4f5e);border:2px solid #494a58;
   box-shadow:inset 0 0 0 2px #8b8c9c,0 2px 5px rgba(60,50,40,.16)}
@@ -274,9 +287,12 @@ main{flex:1 1 auto;min-height:0;display:grid;gap:12px;padding:12px;
 @media (max-width:900px){
   main{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr);padding:10px;gap:10px}
   .room{flex:0 0 auto;height:clamp(230px,38dvh,320px);min-height:0}
-  .board,.shelf{display:none}
+  .floor{height:33%}
+  .wall{inset:0 0 33% 0}
+  .board,.shelf,.clock{display:none}
+  .lamp{height:11%}
   .plant{width:44px;height:48px;bottom:38%}
-  .char-wrap{width:clamp(42px,13vw,64px)}
+  .char-wrap{width:clamp(46px,13.5vw,68px)}
   .seat .task{-webkit-line-clamp:1}
   .brand small{display:none}
 }
@@ -330,6 +346,8 @@ main{flex:1 1 auto;min-height:0;display:grid;gap:12px;padding:12px;
       <div class="room" id="room">
         <div class="wall" aria-hidden="true">
           <div class="win"><i class="sun"></i><i class="cl c1"></i><i class="cl c2"></i><i class="bar v"></i><i class="bar h"></i></div>
+          <div class="lamp"><i class="shade"></i><i class="glow"></i></div>
+          <div class="clock"><i class="h"></i><i class="m"></i></div>
           <div class="shelf"><i></i><i></i><i></i><i></i></div>
           <div class="board"><span>PICKLE OFFICE</span></div>
           <div class="plant"><i class="p1"></i><i class="p2"></i><i class="p3"></i><i class="pot"></i></div>
