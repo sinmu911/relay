@@ -240,11 +240,11 @@ main{flex:1 1 auto;min-height:0;display:grid;gap:12px;padding:12px;
 .msg:hover .rep,.rep:focus-visible{opacity:1}
 @media (hover:none){.rep{opacity:.55}}
 .txt{background:#fff;border:1px solid var(--line);border-radius:4px 13px 13px 13px;padding:8px 11px;
-  font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;
+  font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:keep-all;overflow-wrap:anywhere;
   box-shadow:0 1px 3px rgba(90,70,50,.05);cursor:pointer}
 .msg.user .txt{background:var(--lilac-l);border-color:var(--lilac-b);border-radius:13px 13px 13px 4px}
 .msg.user .av{background:#6c6473}
-.mn{color:#6a53a8;background:#ece4fa;border-radius:5px;padding:0 3px;font-weight:700}
+.mn{color:#6a53a8;background:#ece4fa;border-radius:5px;padding:0 3px;font-weight:700;white-space:nowrap}
 .mn.all{color:#9a6a12;background:#fdf1d6}
 .quote{border-left:3px solid #e2d8c8;padding:2px 0 2px 8px;font-size:11.5px;color:var(--muted);
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
