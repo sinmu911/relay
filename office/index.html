@@ -114,8 +114,9 @@ button{font:inherit;color:inherit}
 main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;
   overscroll-behavior:contain}
 .tab-panel{display:grid;gap:12px;width:100%;max-width:1180px;margin:0 auto}
-.panel-office{grid-template-columns:minmax(0,1fr) minmax(320px,400px);grid-template-rows:minmax(736px,1fr);
-  min-height:100%;align-content:stretch}
+/* 오피스 현황은 화면에 남은 높이에 딱 맞춘다(넘치는 건 오른쪽 메시지 목록 안에서만 스크롤) */
+.panel-office{grid-template-columns:minmax(0,1fr) minmax(320px,400px);
+  grid-template-rows:minmax(0,1fr);height:100%;min-height:0;align-content:stretch}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
   min-height:0;display:flex;flex-direction:column;overflow:hidden}
 
@@ -137,7 +138,7 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;
   radial-gradient(70% 60% at 78% 0%,rgba(244,178,122,.16),transparent 70%),
   linear-gradient(#fdf9f3,#f6ecdf)}
 .wall::after{content:"";position:absolute;left:0;right:0;bottom:0;height:6px;background:#efdfc9;box-shadow:inset 0 1px 0 #fff}
-.floor{position:relative;flex:1 1 auto;min-height:540px;display:flex;flex-direction:column;justify-content:center;
+.floor{position:relative;flex:1 1 auto;min-height:0;display:flex;flex-direction:column;justify-content:center;
   padding:12px 10px;background:linear-gradient(#e9d3b6,#dcc0a0);
   box-shadow:inset 0 6px 10px -6px rgba(120,90,60,.35)}
 .floor::after{content:"";position:absolute;inset:0;z-index:0;opacity:.4;pointer-events:none;
@@ -252,7 +253,7 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;
 .seat[data-key="gpt"] .meta b{color:#1f7a62}
 
 /* ---------- activity feed ---------- */
-.feed{position:relative;min-height:430px}
+.feed{position:relative;min-height:0;flex:1 1 auto}
 .feed-head{flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:9px 13px;border-bottom:1px solid var(--line2)}
 .feed-head b{font-size:12.5px;white-space:nowrap}
 .feed-head .cnt{font-size:10px;color:var(--muted);background:#f4efe6;border-radius:999px;padding:1px 7px;font-variant-numeric:tabular-nums}
@@ -409,11 +410,24 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;
   .lock-card{padding:22px 18px 18px}
   .ugrid{grid-template-columns:1fr}
 }
-@media (max-height:620px) and (min-width:901px){
-  .wall{height:88px}
-  .floor{min-height:470px}
+/* 낮은 화면(노트북·작은 창): 방 안 내용을 줄여 한 화면에 계속 맞춘다 */
+@media (max-height:860px) and (min-width:901px){
+  .wall{height:clamp(64px,10vh,110px)}
+  .zones{gap:10px}
   .seat .bubble{display:none}
-  .panel-office{grid-template-rows:minmax(600px,1fr)}
+  .desk{max-width:104px}
+}
+@media (max-height:730px) and (min-width:901px){
+  .wall{height:64px}
+  .zones{gap:7px}
+  .seat .task{-webkit-line-clamp:1;font-size:10px}
+  .char-wrap{width:clamp(38px,5.4vw,66px)}
+  .desk{max-width:92px}
+  .seat .plate{margin-top:1px}
+}
+/* 아주 낮은 창에서는 화면이 아주 조금 스크롤되더라도 잘리지 않게 */
+@media (max-height:640px) and (min-width:901px){
+  .panel-office{height:auto;grid-template-rows:540px}
 }
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
@@ -1305,6 +1319,15 @@ function showTab(name, save) {
     b.tabIndex = on ? 0 : -1;
   });
   Object.entries(panels).forEach(([k, el]) => { el.hidden = k !== name; });
+  if (name === "office") {
+    // 탭을 오갈 때 화면(세로 스크롤)이 어긋나 있지 않게, 메시지는 늘 최신으로
+    const m = document.querySelector("main");
+    if (m) m.scrollTop = 0;
+    feedEl.scrollTop = feedEl.scrollHeight;
+    unread = 0;
+    jumpEl.hidden = true;
+    paintTitle();
+  }
   if (name === "usage" && lastUsageVal) fillUsage();
   if (save) { try { localStorage.setItem("pickle-office-tab", name); } catch (e) {} }
 }
