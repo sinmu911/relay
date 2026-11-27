@@ -110,9 +110,10 @@ button{font:inherit;color:inherit}
 .tabs .grow{flex:1 1 auto}
 .tabs .tabnote{font-size:10.5px;color:var(--muted);padding-right:2px;white-space:nowrap}
 
-main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;max-width:1180px;margin:0 auto;
+/* 스크롤 영역은 화면 폭 전체를 덮고(좌우 여백에서도 휠이 먹히게), 가운데 정렬은 안쪽 패널이 맡는다 */
+main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;
   overscroll-behavior:contain}
-.tab-panel{display:grid;gap:12px}
+.tab-panel{display:grid;gap:12px;width:100%;max-width:1180px;margin:0 auto}
 .panel-office{grid-template-columns:minmax(0,1fr) minmax(320px,400px);grid-template-rows:minmax(736px,1fr);
   min-height:100%;align-content:stretch}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
@@ -1424,6 +1425,28 @@ collapseBtn.addEventListener("click", () => {
   applyCollapse(collapsed);
   try { localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0"); } catch (e) {}
 });
+
+/* ---------- wheel: main 바깥(좌우 여백·상단)에서 굴려도 페이지가 스크롤 ---------- */
+(function wheelFromOutside() {
+  const mainEl = document.querySelector("main");
+  if (!mainEl) return;
+  window.addEventListener(
+    "wheel",
+    (e) => {
+      if (e.defaultPrevented || e.ctrlKey) return; // 확대·축소 제스처는 그대로 둔다
+      if (mainEl.contains(e.target)) return; // main 안쪽은 브라우저 기본 스크롤에 맡긴다
+      if (getComputedStyle(mainEl).overflowY !== "auto") return; // 모바일처럼 main이 고정된 화면
+      const max = mainEl.scrollHeight - mainEl.clientHeight;
+      if (max <= 1) return;
+      const step = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * mainEl.clientHeight : e.deltaY;
+      if (!step) return;
+      const before = mainEl.scrollTop;
+      mainEl.scrollTop = Math.max(0, Math.min(max, before + step));
+      if (mainEl.scrollTop !== before) e.preventDefault();
+    },
+    { passive: false }
+  );
+})();
 
 /* ---------- misc ---------- */
 window.addEventListener("online", () => setLive(true));
