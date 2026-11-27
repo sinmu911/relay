@@ -279,6 +279,7 @@ main{flex:1 1 auto;min-height:0;display:grid;gap:12px;padding:12px;
 #send:active{transform:scale(.96)}
 #send:disabled{background:#ddd6e6;box-shadow:none;cursor:default}
 .hint{margin:5px 2px 0;font-size:10.5px;color:var(--muted)}
+@media (max-width:900px){.hint .k{display:none}}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);
   background:#33303a;color:#fff;font-size:12.5px;padding:9px 15px;border-radius:11px;z-index:40;
   box-shadow:0 8px 22px rgba(0,0,0,.22);opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;max-width:90vw;text-align:center}
@@ -385,7 +386,7 @@ main{flex:1 1 auto;min-height:0;display:grid;gap:12px;padding:12px;
           <textarea id="input" rows="1" maxlength="2000" placeholder="하고 싶은 말을 적어 주세요. @로 부르면 바로 달려가요." aria-label="메시지 입력"></textarea>
           <button id="send" type="submit" aria-label="보내기">↑</button>
         </div>
-        <p class="hint">Enter 전송 · Shift+Enter 줄바꿈 · 메시지를 누르면 그 말에 답장</p>
+        <p class="hint"><span class="k">Enter 전송 · Shift+Enter 줄바꿈 · </span>메시지를 누르면 그 말에 답장</p>
       </form>
     </section>
   </main>
@@ -975,6 +976,7 @@ window.addEventListener("offline", () => setLive(false));
 setInterval(() => { if (lastStatusVal) renderStatus(lastStatusVal); }, 60000);
 autoGrow();
 sendBtn.disabled = true;
+if (window.matchMedia("(max-width:900px)").matches) inputEl.placeholder = "무엇이든 말씀하세요";
 setTimeout(() => { if (document.body.dataset.screen === "boot") { booting = false; setScreen("lock"); } }, 6000);
 
 window.__office = { get msgs() { return msgs.length; }, get screen() { return document.body.dataset.screen; } };
