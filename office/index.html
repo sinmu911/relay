@@ -419,8 +419,10 @@ const OFFICE_EMAIL = "office@seojun.local";
 
 const KEYS = ["yeolmaedal", "gyeoul", "mcmorning"];
 const NAME = { yeolmaedal: "열매달", gyeoul: "겨울이", mcmorning: "맥모닝" };
+const KEY_OF = { 열매달: "yeolmaedal", 겨울이: "gyeoul", 맥모닝: "mcmorning" };
 const HANDLE = { yeolmaedal: "@leeseojun79", gyeoul: "@leeseojun83", mcmorning: "@leeseojun55" };
 const DARK = { yeolmaedal: "#7f68bb", gyeoul: "#2f86a6", mcmorning: "#b06f2e" };
+const DARK_NAME = { 열매달: DARK.yeolmaedal, 겨울이: DARK.gyeoul, 맥모닝: DARK.mcmorning };
 const STATE_TXT = { online: "온라인", working: "작업 중", idle: "대기 중" };
 const ST_TXT = { pending: "대기", ack: "접수", done: "완료" };
 const ST_NEXT = { pending: "ack", ack: "done", done: "pending" };
@@ -611,11 +613,11 @@ function renderStatus(val) {
 /* ---------- chat ---------- */
 function senderName(m) {
   if (m.senderType === "user") return "서준";
-  return NAME[m.sender] ? m.sender : (m.sender || "비서");
+  return m.sender || "비서";
 }
 function senderColor(m) {
   if (m.senderType === "user") return "#6c6473";
-  return DARK[m.sender] || "#8b8494";
+  return DARK[m.sender] || DARK_NAME[m.sender] || "#8b8494";
 }
 function fillText(node, text) {
   const re = /@(열매달|겨울이|맥모닝|전체)/g;
@@ -640,7 +642,7 @@ function buildMsg(m) {
   const av = document.createElement("span");
   av.className = "av";
   av.style.background = senderColor(m);
-  av.textContent = (isUser ? "서" : (NAME[m.sender] || m.sender || "·").slice(0, 1));
+  av.textContent = (isUser ? "서" : (m.sender || "·").slice(0, 1));
   av.setAttribute("aria-hidden", "true");
 
   const body = document.createElement("div");
@@ -771,7 +773,7 @@ function setReply(m) {
   const nm = senderName(m);
   replyTxt.textContent = "↩ " + nm + "에게 답장 · " + String(m.text || "").replace(/\s+/g, " ").slice(0, 40);
   replyBar.hidden = false;
-  if (m.senderType === "agent" && NAME[m.sender]) insertMention(NAME[m.sender]);
+  if (m.senderType === "agent" && KEY_OF[m.sender]) insertMention(m.sender);
   inputEl.focus();
 }
 function clearReply() {
