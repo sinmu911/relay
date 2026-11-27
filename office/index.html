@@ -525,7 +525,7 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;
         </div>
         <form class="composer" id="form">
           <div class="row">
-            <textarea id="input" rows="1" maxlength="2000" placeholder="하고 싶은 말을 적어 주세요" aria-label="메시지 입력"></textarea>
+            <textarea id="input" rows="1" maxlength="2000" placeholder="하고 싶은 말을 적어 주세요 (태그 없으면 전체에게)" aria-label="메시지 입력"></textarea>
             <button id="send" type="submit" aria-label="보내기">↑</button>
           </div>
         </form>
@@ -1067,7 +1067,7 @@ filtClear.addEventListener("click", () => toggleFilter(null));
 /* ---------- composer ---------- */
 function parseMentions(text) {
   const out = [];
-  const re = /@(열매달|겨울이|맥모닝|클로드|제미나이|코덱스|GPT|전체)/g;
+  const re = /@(열매달|겨울이|맥모닝|클로드|제미나이|코덱스|지피티|GPT|전체)/g;
   let m;
   while ((m = re.exec(text))) if (!out.includes(m[1])) out.push(m[1]);
   return out;
@@ -1105,12 +1105,15 @@ formEl.addEventListener("submit", async (e) => {
   const text = inputEl.value.trim();
   if (!text) return;
   sendBtn.disabled = true;
+  // @ 태그를 하나도 안 붙였으면 모든 비서에게 가도록 @전체로 보낸다(본문은 건드리지 않는다).
+  const mentions = parseMentions(text);
+  if (!mentions.length) mentions.push("전체");
   try {
     await push(ref(db, "messages"), {
       sender: "서준",
       senderType: "user",
       text,
-      mentions: parseMentions(text),
+      mentions,
       status: "pending",
       ts: Date.now()
     });
@@ -1127,7 +1130,7 @@ formEl.addEventListener("submit", async (e) => {
 });
 autoGrow();
 sendBtn.disabled = true;
-if (window.matchMedia("(max-width:900px)").matches) inputEl.placeholder = "메시지 입력 (@로 부르기)";
+if (window.matchMedia("(max-width:900px)").matches) inputEl.placeholder = "메시지 입력 (태그 없으면 전체에게)";
 
 feedEl.addEventListener("scroll", () => {
   if (nearBottom()) {
