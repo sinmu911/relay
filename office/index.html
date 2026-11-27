@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>피클 합동 비서실</title>
+<meta name="theme-color" content="#f4efe7">
+<meta name="robots" content="noindex,nofollow">
+<meta name="description" content="열매달 · 겨울이 · 맥모닝이 함께 일하는 서준님의 합동 비서실">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23b8a4e3'/%3E%3Ccircle cx='24' cy='30' r='4.2' fill='%233b3552'/%3E%3Ccircle cx='40' cy='30' r='4.2' fill='%233b3552'/%3E%3Cpath d='M26 42q6 6 12 0' stroke='%233b3552' stroke-width='3.6' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#f4efe7;--bg2:#eae1d4;--card:#fffdfa;
+  --ink:#2f2a36;--ink2:#544e5d;--muted:#8b8494;
+  --line:#e8e0d3;--line2:#f1eae0;
+  --lilac:#b8a4e3;--lilac-d:#7f68bb;--lilac-l:#f2ecfc;--lilac-b:#ded2f5;
+  --sky:#7ec8e3;--sky-d:#3d95b6;--sky-l:#e9f6fb;--sky-b:#c9e8f4;
+  --apricot:#f4b27a;--apricot-d:#c47c39;--apricot-l:#fdf1e4;--apricot-b:#f7dcc0;
+  --wood1:#f2dcc0;--wood2:#e3c39c;--wood3:#cfa87c;
+  --ok:#4aa96f;--warn:#e0ac1c;--off:#bcb6c3;
+  --shadow:0 14px 34px rgba(84,64,44,.09),0 2px 8px rgba(84,64,44,.05);
+  --r:18px;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{
+  margin:0;color:var(--ink);background:var(--bg);
+  background-image:radial-gradient(120% 90% at 12% 0%,#fdf9f2 0%,#f4efe7 46%,#eae1d4 100%);
+  font-family:"Pretendard",Pretendard,-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  font-size:15px;line-height:1.5;-webkit-text-size-adjust:100%;
+  -webkit-tap-highlight-color:transparent;
+}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--lilac-d);outline-offset:2px}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#d9d0c4;border-radius:99px;border:2px solid transparent;background-clip:content-box}
+
+/* ---------- boot ---------- */
+#boot{position:fixed;inset:0;display:grid;place-items:center;gap:10px;z-index:20}
+#boot .b-wrap{display:grid;justify-items:center;gap:14px}
+.spin{width:26px;height:26px;border-radius:50%;border:3px solid #ded4c6;border-top-color:var(--lilac-d);animation:spin .9s linear infinite}
+#boot p{margin:0;font-size:12.5px;color:var(--muted)}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ---------- lock ---------- */
+#lock{position:fixed;inset:0;display:grid;place-items:center;padding:20px;z-index:10}
+#lock::before{content:"";position:absolute;inset:0;
+  background:radial-gradient(60% 50% at 50% 18%,rgba(184,164,227,.20),transparent 70%),
+             radial-gradient(50% 40% at 82% 78%,rgba(244,178,122,.20),transparent 70%),
+             radial-gradient(50% 40% at 16% 80%,rgba(126,200,227,.18),transparent 70%);
+  pointer-events:none}
+.lock-card{position:relative;width:100%;max-width:372px;background:var(--card);border:1px solid var(--line);
+  border-radius:24px;padding:26px 24px 22px;box-shadow:var(--shadow);text-align:center}
+.lock-card.shake{animation:shake .32s}
+@keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.lock-art{display:grid;justify-items:center;margin:-6px 0 12px}
+.la-row{display:flex;align-items:flex-end;gap:2px}
+.la-row .c{width:46px;height:46px;display:block}
+.la-row .c:nth-child(2){width:52px;height:52px}
+.la-row svg{width:100%;height:100%;display:block}
+.la-desk{display:block;width:172px;height:14px;margin-top:-4px;border-radius:5px;
+  background:linear-gradient(var(--wood1),var(--wood2));box-shadow:0 3px 0 var(--wood3),0 8px 14px rgba(120,90,60,.14)}
+.lock-card h1{font-size:20px;letter-spacing:-.02em;margin:6px 0 4px}
+.lock-card .sub{margin:0 0 20px;font-size:12.5px;color:var(--muted)}
+.fl{display:block;text-align:left;font-size:11.5px;font-weight:700;color:var(--ink2);margin:0 0 6px 2px}
+#pw{width:100%;padding:13px 14px;border-radius:13px;border:1px solid var(--line);background:#fff;
+  color:var(--ink);font-size:16px;letter-spacing:.04em;transition:border-color .16s,box-shadow .16s}
+#pw:focus{outline:0;border-color:var(--lilac);box-shadow:0 0 0 3px rgba(184,164,227,.28)}
+#enter{width:100%;margin-top:10px;padding:13px;border:0;border-radius:13px;cursor:pointer;
+  background:linear-gradient(180deg,#8d76c8,#7458b8);color:#fff;font-size:15px;font-weight:700;
+  box-shadow:0 6px 16px rgba(116,88,184,.28);transition:transform .12s,filter .16s}
+#enter:hover{filter:brightness(1.05)}
+#enter:active{transform:translateY(1px)}
+#enter[disabled]{opacity:.65;cursor:progress}
+.err{min-height:18px;margin:10px 0 0;font-size:12.5px;color:#c2453f;font-weight:600}
+.note{margin:12px 0 0;font-size:11.5px;color:var(--muted);line-height:1.55}
+
+/* ---------- app shell ---------- */
+#app{display:flex;flex-direction:column;height:100dvh;min-height:0}
+.topbar{flex:0 0 auto;display:flex;align-items:center;gap:10px;
+  padding:10px 14px;padding-top:calc(10px + env(safe-area-inset-top));
+  background:rgba(255,253,250,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);z-index:5}
+.brand{display:flex;align-items:center;gap:9px;min-width:0}
+.brand .logo{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;font-size:17px;
+  background:linear-gradient(160deg,#efe7fb,#f8f1e6);border:1px solid var(--line);flex:0 0 auto}
+.brand b{display:block;font-size:15px;letter-spacing:-.01em;white-space:nowrap}
+.brand small{display:block;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar .grow{flex:1 1 auto}
+.live{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted);white-space:nowrap}
+.live i{width:7px;height:7px;border-radius:50%;background:var(--off);transition:background .2s}
+.live[data-on="1"] i{background:var(--ok);box-shadow:0 0 0 3px rgba(74,169,111,.14)}
+.live[data-on="0"] i{background:var(--warn)}
+#logout{border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 13px;font-size:12px;
+  color:var(--ink2);cursor:pointer;white-space:nowrap;transition:background .16s,border-color .16s}
+#logout:hover{background:#f8f3ea;border-color:#dcd2c2}
+
+main{flex:1 1 auto;min-height:0;display:grid;gap:12px;padding:12px;
+  width:100%;max-width:1180px;margin:0 auto;
+  grid-template-columns:minmax(0,1fr) minmax(340px,440px);grid-template-rows:minmax(0,1fr)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);
+  min-height:0;display:flex;flex-direction:column;overflow:hidden}
+
+/* ---------- office ---------- */
+.office-head{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:9px 13px;border-bottom:1px solid var(--line2)}
+.office-head .t{font-size:12.5px;font-weight:700;color:var(--ink2)}
+.office-head .s{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.office-head .grow{flex:1 1 auto}
+.mini{border:1px solid var(--line);background:#fff;border-radius:8px;padding:4px 9px;font-size:11px;
+  color:var(--ink2);cursor:pointer;white-space:nowrap}
+.mini:hover{background:#faf6ef}
+.office.collapsed .room{display:none}
+.office.collapsed{align-self:start;flex:0 0 auto}
+
+.room{position:relative;flex:1 1 auto;min-height:268px;overflow:hidden;background:linear-gradient(#fdf8f0,#f7ecdd)}
+.wall{position:absolute;inset:0 0 31% 0;background:
+  radial-gradient(70% 60% at 78% 0%,rgba(244,178,122,.16),transparent 70%),
+  linear-gradient(#fdf9f3,#f6ecdf)}
+.wall::after{content:"";position:absolute;left:0;right:0;bottom:0;height:7px;background:#efdfc9;box-shadow:inset 0 1px 0 #fff}
+.floor{position:absolute;left:0;right:0;bottom:0;height:31%;
+  background:linear-gradient(#e9d3b6,#dcc0a0);
+  box-shadow:inset 0 6px 10px -6px rgba(120,90,60,.35)}
+.floor::after{content:"";position:absolute;inset:0;opacity:.5;
+  background:repeating-linear-gradient(90deg,transparent 0 46px,rgba(160,124,84,.18) 46px 48px)}
+
+.win{position:absolute;left:6%;top:9%;width:27%;max-width:138px;aspect-ratio:1.15/1;border-radius:9px;
+  background:linear-gradient(#cfeaf8,#eaf7fd);border:3px solid #fff;box-shadow:0 0 0 1px #e6d8c4,0 6px 14px rgba(120,150,170,.16);overflow:hidden}
+.win .sun{position:absolute;right:14%;top:14%;width:22%;aspect-ratio:1;border-radius:50%;
+  background:radial-gradient(circle,#ffd88a,#ffc45e);box-shadow:0 0 14px #ffe0a0}
+.win .cl{position:absolute;background:#fff;border-radius:99px;opacity:.9}
+.win .c1{left:8%;top:46%;width:38%;height:15%}
+.win .c2{left:32%;top:58%;width:26%;height:12%}
+.win .bar{position:absolute;background:#fff;opacity:.95}
+.win .bar.v{left:50%;top:0;bottom:0;width:3px;transform:translateX(-50%)}
+.win .bar.h{top:52%;left:0;right:0;height:3px}
+.shelf{position:absolute;right:9%;top:12%;width:22%;max-width:112px;height:7px;border-radius:3px;background:#e2c8a6;box-shadow:0 3px 0 #d3b58c}
+.shelf i{position:absolute;bottom:7px;width:13%;height:26px;border-radius:3px 3px 0 0;background:#c9b6d9}
+.shelf i:nth-child(1){left:4%;height:22px;background:#b8a4e3}
+.shelf i:nth-child(2){left:22%;height:27px;background:#e8b98d}
+.shelf i:nth-child(3){left:42%;height:19px;background:#9fcfdf}
+.shelf i:nth-child(4){left:60%;height:24px;background:#d9b0b0}
+.board{position:absolute;right:7%;top:31%;width:25%;max-width:132px;aspect-ratio:1.6/1;border-radius:6px;
+  background:#fff;border:3px solid #e7d7c1;display:grid;place-items:center;box-shadow:0 4px 10px rgba(120,90,60,.10)}
+.board span{font-size:clamp(6px,1.05vw,9px);font-weight:800;letter-spacing:.14em;color:#b3aa9c;transform:rotate(-4deg)}
+.plant{position:absolute;left:5%;bottom:36%;width:58px;height:62px}
+.plant .pot{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:26px;height:22px;border-radius:3px 3px 9px 9px;
+  background:linear-gradient(#e0a985,#cf9470)}
+.plant i{position:absolute;left:50%;bottom:18px;width:16px;height:26px;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;
+  background:#8fbf90;transform-origin:bottom center}
+.plant .p1{transform:translateX(-50%) rotate(-28deg)}
+.plant .p2{transform:translateX(-50%) rotate(0)}
+.plant .p3{transform:translateX(-50%) rotate(28deg);background:#7fb283}
+
+.seats{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:flex-end;justify-content:space-around;
+  gap:2px;padding:0 8px 4px;z-index:4}
+.seat{flex:1 1 0;max-width:230px;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;
+  background:transparent;border:0;border-radius:16px;padding:6px 3px 6px;cursor:pointer;
+  transition:background .18s,transform .18s;text-align:center}
+.seat:hover{background:rgba(255,255,255,.55)}
+.seat:active{transform:scale(.99)}
+.seat .meta{display:flex;align-items:center;justify-content:center;gap:5px;font-size:11.5px;line-height:1.2;max-width:100%}
+.seat .meta b{font-weight:800;letter-spacing:-.01em}
+.seat .meta .state{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--off);flex:0 0 auto;transition:background .2s}
+.seat[data-state="online"] .dot{background:var(--ok);box-shadow:0 0 0 2px rgba(74,169,111,.16)}
+.seat[data-state="working"] .dot{background:var(--warn);box-shadow:0 0 0 2px rgba(224,172,28,.18);animation:pulse 1.7s infinite}
+.seat[data-state="idle"] .dot{background:var(--off)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
+.seat .task{margin:0;font-size:10.5px;line-height:1.35;color:var(--ink2);max-width:100%;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.seat .bubble{position:relative;max-width:100%;background:#fff;border:1px solid var(--line);border-radius:10px;
+  padding:4px 8px;font-size:10.5px;line-height:1.35;color:var(--ink2);text-align:left;
+  box-shadow:0 2px 6px rgba(90,70,50,.07);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.seat .bubble::after{content:"";position:absolute;left:50%;bottom:-5px;width:8px;height:8px;background:#fff;
+  border-right:1px solid var(--line);border-bottom:1px solid var(--line);transform:translateX(-50%) rotate(45deg)}
+.stage{position:relative;display:flex;flex-direction:column;align-items:center;width:100%}
+.char-wrap{width:clamp(46px,7.6vw,84px);display:grid;place-items:center}
+.char-wrap svg{width:100%;height:auto;display:block;filter:drop-shadow(0 4px 5px rgba(90,70,50,.10))}
+.char .bob{transform-box:fill-box;transform-origin:50% 100%;animation:bob 5s ease-in-out infinite}
+.seat[data-state="working"] .char .bob{animation-duration:1.9s}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.char .eyes{transform-box:fill-box;transform-origin:center;animation:blink 6.5s infinite}
+@keyframes blink{0%,92%,100%{transform:scaleY(1)}95%{transform:scaleY(.12)}}
+.desk{display:block;position:relative;width:100%;max-width:154px;margin-top:-8px;z-index:3}
+.monitor{display:block;width:46%;margin:0 auto -2px;aspect-ratio:16/10;border-radius:5px 5px 2px 2px;
+  background:linear-gradient(160deg,#6f7080,#4e4f5e);border:2px solid #494a58;
+  box-shadow:inset 0 0 0 2px #8b8c9c,0 2px 5px rgba(60,50,40,.16)}
+.desk-top{display:block;height:15px;border-radius:5px;background:linear-gradient(var(--wood1),var(--wood2));
+  box-shadow:inset 0 1px 0 #fff9,0 3px 0 var(--wood3),0 7px 12px rgba(120,90,60,.16)}
+.mug{position:absolute;right:12%;bottom:11px;width:9px;height:10px;border-radius:2px 2px 4px 4px;background:#fff;border:1px solid #e2d8ca}
+.mug::after{content:"";position:absolute;right:-4px;top:2px;width:4px;height:5px;border:1px solid #e2d8ca;border-left:0;border-radius:0 4px 4px 0}
+.seat[data-key="mcmorning"] .mug{background:#fdf1e4;border-color:#e8c9a6}
+.seat[data-key="yeolmaedal"] .mug{background:#f2ecfc;border-color:#dbd0ef}
+.seat[data-key="gyeoul"] .mug{background:#e9f6fb;border-color:#c6e6f2}
+.plate{display:block;margin-top:5px;font-size:9.5px;color:var(--muted);letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.seat[data-key="yeolmaedal"] .meta b{color:#6a53a8}
+.seat[data-key="gyeoul"] .meta b{color:#2f86a6}
+.seat[data-key="mcmorning"] .meta b{color:#b06f2e}
+
+/* ---------- chat ---------- */
+.chat{position:relative}
+.chat-head{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:9px 13px;border-bottom:1px solid var(--line2)}
+.chat-head b{font-size:12.5px}
+.chat-head .grow{flex:1 1 auto}
+.chips{flex:0 0 auto;display:flex;gap:6px;padding:8px 12px;overflow-x:auto;scrollbar-width:none;border-bottom:1px solid var(--line2)}
+.chips::-webkit-scrollbar{display:none}
+.chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 11px;font-size:12px;
+  font-weight:700;color:var(--ink2);cursor:pointer;white-space:nowrap;transition:transform .12s,filter .14s}
+.chip:hover{filter:brightness(.98)}
+.chip:active{transform:scale(.97)}
+.chip[data-k="yeolmaedal"]{background:var(--lilac-l);border-color:var(--lilac-b);color:#6a53a8}
+.chip[data-k="gyeoul"]{background:var(--sky-l);border-color:var(--sky-b);color:#2f86a6}
+.chip[data-k="mcmorning"]{background:var(--apricot-l);border-color:var(--apricot-b);color:#b06f2e}
+.chip[data-k="all"]{background:#fff8e9;border-color:#f0dcb2;color:#8d6a24}
+
+.msgs{position:relative;flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px 12px 12px;
+  display:flex;flex-direction:column;gap:11px;overscroll-behavior:contain}
+.day{align-self:center;font-size:10.5px;color:var(--muted);background:#f6f0e6;border-radius:999px;padding:3px 11px;margin:2px 0}
+.msg{display:flex;gap:8px;align-items:flex-start}
+.av{width:27px;height:27px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:800;
+  color:#fff;flex:0 0 auto;margin-top:2px;box-shadow:0 1px 3px rgba(80,60,40,.14)}
+.body{min-width:0;max-width:calc(100% - 36px);display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+.who{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);flex-wrap:wrap}
+.who b{font-size:11.5px;color:var(--ink2)}
+.who time{font-variant-numeric:tabular-nums}
+.rep{border:0;background:transparent;color:var(--muted);font-size:11px;padding:0 3px;cursor:pointer;border-radius:4px;opacity:0}
+.msg:hover .rep,.rep:focus-visible{opacity:1}
+@media (hover:none){.rep{opacity:.55}}
+.txt{background:#fff;border:1px solid var(--line);border-radius:4px 13px 13px 13px;padding:8px 11px;
+  font-size:13.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;
+  box-shadow:0 1px 3px rgba(90,70,50,.05);cursor:pointer}
+.msg.user .txt{background:var(--lilac-l);border-color:var(--lilac-b);border-radius:13px 13px 13px 4px}
+.msg.user .av{background:#6c6473}
+.mn{color:#6a53a8;background:#ece4fa;border-radius:5px;padding:0 3px;font-weight:700}
+.mn.all{color:#9a6a12;background:#fdf1d6}
+.quote{border-left:3px solid #e2d8c8;padding:2px 0 2px 8px;font-size:11.5px;color:var(--muted);
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st{border:0;border-radius:999px;font-size:10.5px;font-weight:800;padding:2px 8px;cursor:pointer;line-height:1.5}
+.st[data-s="pending"]{background:#fdf0d3;color:#96690f}
+.st[data-s="ack"]{background:#e2eefb;color:#2c6b9c}
+.st[data-s="done"]{background:#e2f3e8;color:#2b7a4b}
+.st:hover{filter:brightness(.96)}
+.empty{flex:1 1 auto;display:grid;place-items:center;text-align:center;color:var(--muted);font-size:12.5px;line-height:1.7;padding:20px}
+.empty b{display:block;font-size:13.5px;color:var(--ink2);margin-bottom:4px}
+
+.jump{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);border:1px solid var(--lilac-b);
+  background:#fff;color:#6a53a8;font-size:11.5px;font-weight:700;border-radius:999px;padding:5px 12px;cursor:pointer;
+  box-shadow:0 4px 12px rgba(90,70,50,.14);z-index:3}
+.jump:hover{background:var(--lilac-l)}
+
+.composer{flex:0 0 auto;border-top:1px solid var(--line2);background:var(--card);
+  padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
+.reply-bar{display:flex;align-items:center;gap:7px;background:#f7f2e9;border:1px solid var(--line);
+  border-radius:10px;padding:5px 8px;margin-bottom:7px;font-size:11.5px;color:var(--ink2);min-width:0}
+.reply-bar span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1 1 auto}
+.reply-bar button{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:15px;line-height:1;padding:0 2px}
+.row{display:flex;gap:8px;align-items:flex-end}
+#input{flex:1 1 auto;min-height:42px;max-height:124px;resize:none;border:1px solid var(--line);border-radius:14px;
+  padding:11px 13px;font:inherit;font-size:16px;line-height:1.4;background:#fff;color:var(--ink);
+  transition:border-color .16s,box-shadow .16s}
+#input:focus{outline:0;border-color:var(--lilac);box-shadow:0 0 0 3px rgba(184,164,227,.24)}
+#input::placeholder{color:#a9a2b0}
+#send{flex:0 0 auto;width:42px;height:42px;border-radius:50%;border:0;cursor:pointer;
+  background:linear-gradient(180deg,#8d76c8,#7458b8);color:#fff;font-size:17px;font-weight:800;
+  box-shadow:0 5px 14px rgba(116,88,184,.26);transition:transform .12s,filter .16s}
+#send:active{transform:scale(.96)}
+#send:disabled{background:#ddd6e6;box-shadow:none;cursor:default}
+.hint{margin:5px 2px 0;font-size:10.5px;color:var(--muted)}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);
+  background:#33303a;color:#fff;font-size:12.5px;padding:9px 15px;border-radius:11px;z-index:40;
+  box-shadow:0 8px 22px rgba(0,0,0,.22);opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;max-width:90vw;text-align:center}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(-4px)}
+
+@media (max-width:900px){
+  main{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr);padding:10px;gap:10px}
+  .room{flex:0 0 auto;height:clamp(230px,38dvh,320px);min-height:0}
+  .board,.shelf{display:none}
+  .plant{width:44px;height:48px;bottom:38%}
+  .char-wrap{width:clamp(42px,13vw,64px)}
+  .seat .task{-webkit-line-clamp:1}
+  .brand small{display:none}
+}
+@media (max-width:420px){
+  .seat{padding:4px 1px;gap:2px}
+  .seat .meta{font-size:10.5px}
+  .seat .task{font-size:9.5px}
+  .lock-card{padding:22px 18px 18px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
+}
+</style>
+</head>
+<body data-screen="boot">
+
+<div id="boot"><div class="b-wrap"><i class="spin"></i><p>비서실 문 여는 중…</p></div></div>
+
+<div id="lock" hidden>
+  <form class="lock-card" id="lockForm" autocomplete="on">
+    <div class="lock-art"><div class="la-row" id="lockArt"></div><i class="la-desk"></i></div>
+    <h1>피클 합동 비서실</h1>
+    <p class="sub">열매달 · 겨울이 · 맥모닝이 모여 있는 방</p>
+    <label class="fl" for="pw">비밀번호</label>
+    <input id="pw" type="password" autocomplete="current-password" placeholder="비밀번호를 입력해 주세요" required>
+    <button id="enter" type="submit">입장하기</button>
+    <p class="err" id="lockErr" role="alert"></p>
+    <p class="note">서준님만 쓰는 공간이에요. 한 번 들어오면 이 기기에서는 계속 열려 있어요.</p>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">🏢</span>
+      <div><b>피클 합동 비서실</b><small>서준님 전용 · 3인 비서실</small></div>
+    </div>
+    <span class="grow"></span>
+    <span class="live" id="live" data-on=""><i></i><span id="liveTxt">연결 중</span></span>
+    <button id="logout" type="button">로그아웃</button>
+  </header>
+
+  <main>
+    <section class="card office" id="officePanel" aria-label="비서실 지도">
+      <div class="office-head">
+        <span class="t">🏢 3층 비서실</span>
+        <span class="s" id="officeSub">셋이 함께 일하는 방</span>
+        <span class="grow"></span>
+        <button class="mini" id="collapse" type="button" aria-expanded="true">접기</button>
+      </div>
+      <div class="room" id="room">
+        <div class="wall" aria-hidden="true">
+          <div class="win"><i class="sun"></i><i class="cl c1"></i><i class="cl c2"></i><i class="bar v"></i><i class="bar h"></i></div>
+          <div class="shelf"><i></i><i></i><i></i><i></i></div>
+          <div class="board"><span>PICKLE OFFICE</span></div>
+          <div class="plant"><i class="p1"></i><i class="p2"></i><i class="p3"></i><i class="pot"></i></div>
+        </div>
+        <div class="floor" aria-hidden="true"></div>
+        <div class="seats" id="seats"></div>
+      </div>
+    </section>
+
+    <section class="card chat" aria-label="비서실 대화">
+      <div class="chat-head">
+        <b>비서실 대화</b>
+        <span class="grow"></span>
+        <span class="live" id="live2" data-on=""><i></i><span>실시간</span></span>
+      </div>
+      <div class="chips" id="chips">
+        <button class="chip" type="button" data-k="yeolmaedal">@열매달</button>
+        <button class="chip" type="button" data-k="gyeoul">@겨울이</button>
+        <button class="chip" type="button" data-k="mcmorning">@맥모닝</button>
+        <button class="chip" type="button" data-k="all">@전체</button>
+      </div>
+      <div class="msgs" id="msgs" aria-live="polite"></div>
+      <button class="jump" id="jump" type="button" hidden>새 메시지 ↓</button>
+      <form class="composer" id="form">
+        <div class="reply-bar" id="replyBar" hidden>
+          <span id="replyTxt"></span>
+          <button type="button" id="replyCancel" aria-label="답장 취소">×</button>
+        </div>
+        <div class="row">
+          <textarea id="input" rows="1" maxlength="2000" placeholder="하고 싶은 말을 적어 주세요. @로 부르면 바로 달려가요." aria-label="메시지 입력"></textarea>
+          <button id="send" type="submit" aria-label="보내기">↑</button>
+        </div>
+        <p class="hint">Enter 전송 · Shift+Enter 줄바꿈 · 메시지를 누르면 그 말에 답장</p>
+      </form>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<noscript><p style="padding:24px;text-align:center">이 화면은 자바스크립트가 필요해요.</p></noscript>
+
+<script>
+  setTimeout(function () {
+    if (document.body.dataset.screen !== "boot") return;
+    var b = document.getElementById("boot");
+    if (!b) return;
+    b.innerHTML = '<div class="b-wrap" style="text-align:center"><p style="font-size:13.5px;color:#544e5d">화면을 불러오지 못했어요.<br>잠시 뒤 다시 열어 주세요.</p><button type="button" onclick="location.reload()" style="margin-top:10px;border:1px solid #e8e0d3;background:#fff;border-radius:10px;padding:8px 14px;font-size:13px;cursor:pointer">새로고침</button></div>';
+  }, 9000);
+</script>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import {
+  getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut,
+  setPersistence, browserLocalPersistence
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { getDatabase, ref, onValue, push, update } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCAzmCH1qZN9q4aBsXIarAFj6MSQ5rRNS4",
+  authDomain: "seojun-pickle-office.firebaseapp.com",
+  databaseURL: "https://seojun-pickle-office-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "seojun-pickle-office",
+  storageBucket: "seojun-pickle-office.firebasestorage.app",
+  messagingSenderId: "148191639844",
+  appId: "1:148191639844:web:5e3a37fa09363c7e2c1bb1"
+};
+const OFFICE_EMAIL = "office@seojun.local";
+
+const KEYS = ["yeolmaedal", "gyeoul", "mcmorning"];
+const NAME = { yeolmaedal: "열매달", gyeoul: "겨울이", mcmorning: "맥모닝" };
+const HANDLE = { yeolmaedal: "@leeseojun79", gyeoul: "@leeseojun83", mcmorning: "@leeseojun55" };
+const DARK = { yeolmaedal: "#7f68bb", gyeoul: "#2f86a6", mcmorning: "#b06f2e" };
+const STATE_TXT = { online: "온라인", working: "작업 중", idle: "대기 중" };
+const ST_TXT = { pending: "대기", ack: "접수", done: "완료" };
+const ST_NEXT = { pending: "ack", ack: "done", done: "pending" };
+
+/* ---------- character art ---------- */
+const ART = {
+  yeolmaedal: `<svg class="char" viewBox="0 0 120 120" aria-hidden="true">
+    <ellipse cx="60" cy="111" rx="27" ry="4" fill="#6b5a8a" opacity=".10"/>
+    <g class="bob">
+      <path d="M60 34c0-9 1-14 3-18" stroke="#8abf8a" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+      <path d="M63 18c6-7 15-4 15 3-8 4-13 2-15-3z" fill="#8abf8a"/>
+      <circle cx="60" cy="66" r="34" fill="#b8a4e3"/>
+      <circle cx="60" cy="66" r="34" fill="none" stroke="#a48cda" stroke-width="2.4"/>
+      <ellipse cx="47" cy="50" rx="11" ry="7" fill="#fff" opacity=".28"/>
+      <g class="eyes">
+        <ellipse cx="49" cy="66" rx="4.2" ry="5.4" fill="#3b3552"/>
+        <ellipse cx="71" cy="66" rx="4.2" ry="5.4" fill="#3b3552"/>
+        <circle cx="50.4" cy="64.2" r="1.5" fill="#fff"/>
+        <circle cx="72.4" cy="64.2" r="1.5" fill="#fff"/>
+      </g>
+      <ellipse cx="37" cy="78" rx="6" ry="3.8" fill="#e79ec4" opacity=".5"/>
+      <ellipse cx="83" cy="78" rx="6" ry="3.8" fill="#e79ec4" opacity=".5"/>
+      <path d="M55 79q5 5 10 0" stroke="#3b3552" stroke-width="2.8" fill="none" stroke-linecap="round"/>
+    </g>
+  </svg>`,
+  gyeoul: `<svg class="char" viewBox="0 0 120 120" aria-hidden="true">
+    <ellipse cx="60" cy="111" rx="27" ry="4" fill="#2f6a80" opacity=".10"/>
+    <g class="bob">
+      <rect x="32" y="26" width="56" height="86" rx="28" fill="#7ec8e3"/>
+      <rect x="32" y="26" width="56" height="86" rx="28" fill="none" stroke="#63b6d4" stroke-width="2.4"/>
+      <ellipse cx="45" cy="52" rx="8" ry="13" fill="#fff" opacity=".24"/>
+      <circle cx="43" cy="90" r="2.1" fill="#5aa9cf" opacity=".45"/>
+      <circle cx="79" cy="78" r="2.1" fill="#5aa9cf" opacity=".45"/>
+      <path d="M32 44c0-16 12-25 28-25s28 9 28 25z" fill="#5aa9cf"/>
+      <rect x="30" y="39" width="60" height="9" rx="4.5" fill="#4f9dc0"/>
+      <circle cx="60" cy="15" r="6" fill="#eaf7ff"/>
+      <path d="M38 94h44" stroke="#fff" stroke-width="8" stroke-linecap="round" opacity=".9"/>
+      <g class="eyes">
+        <ellipse cx="49" cy="64" rx="4" ry="5.2" fill="#33414d"/>
+        <ellipse cx="71" cy="64" rx="4" ry="5.2" fill="#33414d"/>
+        <circle cx="50.4" cy="62.3" r="1.4" fill="#fff"/>
+        <circle cx="72.4" cy="62.3" r="1.4" fill="#fff"/>
+      </g>
+      <ellipse cx="38" cy="76" rx="5.4" ry="3.4" fill="#f0a0b8" opacity=".55"/>
+      <ellipse cx="82" cy="76" rx="5.4" ry="3.4" fill="#f0a0b8" opacity=".55"/>
+      <path d="M56 78q4 4.6 8 0" stroke="#33414d" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+    </g>
+  </svg>`,
+  mcmorning: `<svg class="char" viewBox="0 0 120 120" aria-hidden="true">
+    <ellipse cx="60" cy="111" rx="26" ry="4" fill="#8a5a2b" opacity=".10"/>
+    <g class="bob">
+      <rect x="34" y="23" width="52" height="89" rx="26" fill="#f4b27a"/>
+      <rect x="34" y="23" width="52" height="89" rx="26" fill="none" stroke="#e09a63" stroke-width="2.4"/>
+      <path d="M57 24c-2-8 2-13 10-14" stroke="#e09a63" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+      <ellipse cx="46" cy="48" rx="7" ry="12" fill="#fff" opacity=".26"/>
+      <circle cx="44" cy="88" r="2.1" fill="#e09a63" opacity=".45"/>
+      <circle cx="78" cy="72" r="2.1" fill="#e09a63" opacity=".45"/>
+      <g class="eyes">
+        <ellipse cx="49" cy="62" rx="4" ry="5.2" fill="#4a3524"/>
+        <ellipse cx="71" cy="62" rx="4" ry="5.2" fill="#4a3524"/>
+        <circle cx="50.4" cy="60.3" r="1.4" fill="#fff"/>
+        <circle cx="72.4" cy="60.3" r="1.4" fill="#fff"/>
+      </g>
+      <ellipse cx="38" cy="74" rx="5.6" ry="3.6" fill="#e88a6a" opacity=".45"/>
+      <ellipse cx="82" cy="74" rx="5.6" ry="3.6" fill="#e88a6a" opacity=".45"/>
+      <path d="M55 76q5 5 10 0" stroke="#4a3524" stroke-width="2.6" fill="none" stroke-linecap="round"/>
+    </g>
+  </svg>`
+};
+
+/* ---------- dom ---------- */
+const $ = (s) => document.querySelector(s);
+const lockEl = $("#lock"), appEl = $("#app"), bootEl = $("#boot");
+const lockForm = $("#lockForm"), pwEl = $("#pw"), enterBtn = $("#enter"), lockErr = $("#lockErr");
+const seatsEl = $("#seats"), msgsEl = $("#msgs"), inputEl = $("#input"), sendBtn = $("#send");
+const formEl = $("#form"), jumpEl = $("#jump"), liveEl = $("#live"), liveTxt = $("#liveTxt"), live2 = $("#live2");
+const replyBar = $("#replyBar"), replyTxt = $("#replyTxt"), replyCancel = $("#replyCancel");
+const officePanel = $("#officePanel"), collapseBtn = $("#collapse"), toastEl = $("#toast");
+
+/* ---------- state ---------- */
+let fbUser = null;
+let detach = [];
+let msgs = [];
+let reply = null;
+let maxAgentTs = 0;
+let unread = 0;
+let booting = true;
+const fmtCache = new Map();
+
+/* ---------- helpers ---------- */
+let lastStatusVal = null;
+function rel(ts) {
+  if (!ts) return "";
+  const d = Date.now() - ts;
+  if (d < 0) return "방금";
+  if (d < 60000) return "방금";
+  if (d < 3600000) return Math.floor(d / 60000) + "분 전";
+  if (d < 86400000) return Math.floor(d / 3600000) + "시간 전";
+  return Math.floor(d / 86400000) + "일 전";
+}
+function hhmm(ts) {
+  if (!ts) return "";
+  const key = "t" + Math.floor(ts / 60000);
+  if (fmtCache.has(key)) return fmtCache.get(key);
+  const d = new Date(ts);
+  const v = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  fmtCache.set(key, v);
+  return v;
+}
+function dayKey(ts) {
+  const d = new Date(ts);
+  return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+}
+function dayLabel(ts) {
+  const d = new Date(ts), n = new Date();
+  const zero = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((zero(n) - zero(d)) / 86400000);
+  if (diff === 0) return "오늘";
+  if (diff === 1) return "어제";
+  const w = ["일", "월", "화", "수", "목", "금", "토"][d.getDay()];
+  return (d.getMonth() + 1) + "월 " + d.getDate() + "일 (" + w + ")";
+}
+function parseMentions(text) {
+  const out = [];
+  const re = /@(열매달|겨울이|맥모닝|전체)/g;
+  let m;
+  while ((m = re.exec(text))) if (!out.includes(m[1])) out.push(m[1]);
+  return out;
+}
+let toastTimer = 0;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("on"), 2600);
+}
+function setScreen(name) {
+  document.body.dataset.screen = name;
+  bootEl.hidden = name !== "boot";
+  lockEl.hidden = name !== "lock";
+  appEl.hidden = name !== "app";
+}
+
+/* ---------- seats ---------- */
+function seatHTML(k) {
+  return `<button class="seat" type="button" data-key="${k}" data-state="idle" aria-label="${NAME[k]} 부르기">
+    <span class="meta"><i class="dot"></i><b>${NAME[k]}</b><span class="state">확인 중</span></span>
+    <span class="task">자리 확인 중…</span>
+    <span class="stage">
+      <span class="bubble" data-role="bubble" hidden></span>
+      <span class="char-wrap">${ART[k]}</span>
+      <span class="desk"><i class="monitor"></i><i class="desk-top"></i><i class="mug"></i></span>
+    </span>
+    <span class="plate">${HANDLE[k]}</span>
+  </button>`;
+}
+seatsEl.innerHTML = KEYS.map(seatHTML).join("");
+$("#lockArt").innerHTML = KEYS.map((k) => `<span class="c">${ART[k]}</span>`).join("");
+
+seatsEl.addEventListener("click", (e) => {
+  const seat = e.target.closest(".seat");
+  if (!seat) return;
+  insertMention(NAME[seat.dataset.key]);
+});
+
+function renderStatus(val) {
+  val = val || {};
+  lastStatusVal = val;
+  KEYS.forEach((k) => {
+    const st = val[k] && typeof val[k] === "object" ? val[k] : {};
+    const seat = seatsEl.querySelector('.seat[data-key="' + k + '"]');
+    if (!seat) return;
+    const state = ["online", "working", "idle"].includes(st.state) ? st.state : "idle";
+    seat.dataset.state = state;
+    const nm = seat.querySelector(".meta b");
+    nm.textContent = st.name || NAME[k];
+    const stEl = seat.querySelector(".state");
+    stEl.textContent = STATE_TXT[state] + (st.updatedAt ? " · " + rel(st.updatedAt) : "");
+    seat.querySelector(".task").textContent = st.task || (state === "idle" ? "자리 비움" : "작업 중");
+    seat.querySelector(".plate").textContent = st.handle || HANDLE[k];
+    const b = seat.querySelector('[data-role="bubble"]');
+    const txt = (st.bubble || "").toString().trim();
+    if (txt) { b.textContent = txt; b.hidden = false; } else { b.textContent = ""; b.hidden = true; }
+    seat.setAttribute("aria-label", `${nm.textContent} 부르기 · ${stEl.textContent}`);
+  });
+}
+
+/* ---------- chat ---------- */
+function senderName(m) {
+  if (m.senderType === "user") return "서준";
+  return NAME[m.sender] ? m.sender : (m.sender || "비서");
+}
+function senderColor(m) {
+  if (m.senderType === "user") return "#6c6473";
+  return DARK[m.sender] || "#8b8494";
+}
+function fillText(node, text) {
+  const re = /@(열매달|겨울이|맥모닝|전체)/g;
+  let i = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > i) node.append(text.slice(i, m.index));
+    const s = document.createElement("span");
+    s.className = "mn" + (m[1] === "전체" ? " all" : "");
+    s.textContent = m[0];
+    node.append(s);
+    i = m.index + m[0].length;
+  }
+  if (i < text.length) node.append(text.slice(i));
+}
+
+function buildMsg(m) {
+  const isUser = m.senderType === "user";
+  const wrap = document.createElement("div");
+  wrap.className = "msg" + (isUser ? " user" : "");
+  wrap.dataset.key = m.key;
+
+  const av = document.createElement("span");
+  av.className = "av";
+  av.style.background = senderColor(m);
+  av.textContent = (isUser ? "서" : (NAME[m.sender] || m.sender || "·").slice(0, 1));
+  av.setAttribute("aria-hidden", "true");
+
+  const body = document.createElement("div");
+  body.className = "body";
+
+  const who = document.createElement("div");
+  who.className = "who";
+  const nm = document.createElement("b");
+  nm.textContent = senderName(m);
+  if (!isUser) nm.style.color = senderColor(m);
+  who.append(nm);
+  if (m.ts) {
+    const t = document.createElement("time");
+    t.textContent = hhmm(m.ts);
+    who.append(t);
+  }
+  if (isUser) {
+    const st = (m.status === "ack" || m.status === "done") ? m.status : "pending";
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "st";
+    b.dataset.s = st;
+    b.textContent = ST_TXT[st];
+    b.title = "눌러서 상태 바꾸기 (대기 → 접수 → 완료)";
+    b.addEventListener("click", (e) => { e.stopPropagation(); cycleStatus(m, st); });
+    who.append(b);
+  }
+  const rep = document.createElement("button");
+  rep.type = "button";
+  rep.className = "rep";
+  rep.textContent = "↩";
+  rep.title = "이 메시지에 답장";
+  rep.setAttribute("aria-label", senderName(m) + " 메시지에 답장");
+  rep.addEventListener("click", (e) => { e.stopPropagation(); setReply(m); });
+  who.append(rep);
+  body.append(who);
+
+  const txt = document.createElement("div");
+  txt.className = "txt";
+  if (m.replyTo) {
+    const parent = msgs.find((x) => x.key === m.replyTo);
+    if (parent && parent.text) {
+      const q = document.createElement("div");
+      q.className = "quote";
+      q.textContent = "↩ " + senderName(parent) + ": " + String(parent.text).replace(/\s+/g, " ").slice(0, 46);
+      txt.append(q);
+    }
+  }
+  const textNode = document.createElement("div");
+  fillText(textNode, String(m.text || ""));
+  txt.append(textNode);
+  txt.addEventListener("click", () => {
+    if (window.getSelection && String(window.getSelection()).length) return;
+    setReply(m);
+  });
+  body.append(txt);
+
+  wrap.append(av, body);
+  return wrap;
+}
+
+function renderList(forceBottom) {
+  const nearBottom = forceBottom || (msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 90);
+  msgsEl.textContent = "";
+  if (!msgs.length) {
+    const e = document.createElement("div");
+    e.className = "empty";
+    e.innerHTML = "<div><b>아직 대화가 없어요</b>아래에서 @열매달 을 불러 보세요.</div>";
+    msgsEl.append(e);
+    return;
+  }
+  let lastDay = "";
+  msgs.forEach((m) => {
+    const dk = m.ts ? dayKey(m.ts) : "";
+    if (dk && dk !== lastDay) {
+      const d = document.createElement("div");
+      d.className = "day";
+      d.textContent = dayLabel(m.ts);
+      msgsEl.append(d);
+      lastDay = dk;
+    }
+    msgsEl.append(buildMsg(m));
+  });
+  if (nearBottom) msgsEl.scrollTop = msgsEl.scrollHeight;
+}
+
+function renderMessages(val) {
+  const arr = [];
+  if (val && typeof val === "object") {
+    for (const [key, m] of Object.entries(val)) {
+      if (!m || typeof m !== "object") continue;
+      arr.push({ key, ...m });
+    }
+  }
+  arr.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  msgs = arr.slice(-300);
+
+  const agentMax = msgs.reduce((mx, m) => (m.senderType === "agent" && (m.ts || 0) > mx ? m.ts : mx), 0);
+  const near = msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 90;
+  if (agentMax > maxAgentTs && maxAgentTs && !near) {
+    unread += msgs.filter((m) => m.senderType === "agent" && (m.ts || 0) > maxAgentTs).length;
+    jumpEl.hidden = false;
+  }
+  maxAgentTs = Math.max(maxAgentTs, agentMax);
+  renderList(msgs.length <= 1);
+  placeJump();
+  paintTitle();
+}
+
+function paintTitle() {
+  document.title = (unread ? "(" + unread + ") " : "") + "피클 합동 비서실";
+}
+function placeJump() {
+  try { jumpEl.style.bottom = (formEl.offsetHeight + 10) + "px"; } catch (e) {}
+}
+
+async function cycleStatus(m, cur) {
+  const next = ST_NEXT[cur] || "pending";
+  try {
+    await update(ref(db, "messages/" + m.key), { status: next });
+  } catch (e) {
+    toast("상태를 바꾸지 못했어요.");
+  }
+}
+
+function setReply(m) {
+  reply = m;
+  const nm = senderName(m);
+  replyTxt.textContent = "↩ " + nm + "에게 답장 · " + String(m.text || "").replace(/\s+/g, " ").slice(0, 40);
+  replyBar.hidden = false;
+  if (m.senderType === "agent" && NAME[m.sender]) insertMention(NAME[m.sender]);
+  inputEl.focus();
+}
+function clearReply() {
+  reply = null;
+  replyBar.hidden = true;
+  replyTxt.textContent = "";
+}
+replyCancel.addEventListener("click", clearReply);
+
+function insertMention(name) {
+  const token = "@" + name + " ";
+  const start = inputEl.selectionStart ?? inputEl.value.length;
+  const end = inputEl.selectionEnd ?? inputEl.value.length;
+  const v = inputEl.value;
+  inputEl.value = v.slice(0, start) + token + v.slice(end);
+  const pos = start + token.length;
+  inputEl.focus();
+  try { inputEl.setSelectionRange(pos, pos); } catch (e) {}
+  autoGrow();
+  sendBtn.disabled = !inputEl.value.trim();
+}
+$("#chips").addEventListener("click", (e) => {
+  const c = e.target.closest(".chip");
+  if (!c) return;
+  insertMention(c.dataset.k === "all" ? "전체" : NAME[c.dataset.k]);
+});
+
+function autoGrow() {
+  inputEl.style.height = "auto";
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 124) + "px";
+}
+inputEl.addEventListener("input", () => { autoGrow(); sendBtn.disabled = !inputEl.value.trim(); });
+inputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    formEl.requestSubmit();
+  }
+});
+
+formEl.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = inputEl.value.trim();
+  if (!text) return;
+  const payload = {
+    sender: "서준",
+    senderType: "user",
+    text,
+    mentions: parseMentions(text),
+    status: "pending",
+    ts: Date.now()
+  };
+  if (reply && reply.key) payload.replyTo = reply.key;
+  sendBtn.disabled = true;
+  try {
+    await push(ref(db, "messages"), payload);
+    inputEl.value = "";
+    autoGrow();
+    clearReply();
+    renderList(true);
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+  } catch (err) {
+    toast("보내지 못했어요. 연결을 확인하고 다시 시도해 주세요.");
+  } finally {
+    sendBtn.disabled = !inputEl.value.trim();
+    inputEl.focus();
+  }
+});
+
+msgsEl.addEventListener("scroll", () => {
+  if (msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 90) {
+    jumpEl.hidden = true;
+    if (unread) { unread = 0; paintTitle(); }
+  }
+});
+jumpEl.addEventListener("click", () => {
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+  jumpEl.hidden = true;
+  unread = 0;
+  paintTitle();
+});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) { unread = 0; paintTitle(); }
+});
+
+/* ---------- live state ---------- */
+function setLive(on) {
+  const v = on ? "1" : "0";
+  [liveEl, live2].forEach((n) => { if (n) n.dataset.on = v; });
+  liveTxt.textContent = on ? "실시간 연결" : "연결 중…";
+}
+
+/* ---------- firebase ---------- */
+const fbApp = initializeApp(firebaseConfig);
+const auth = getAuth(fbApp);
+const db = getDatabase(fbApp);
+
+setPersistence(auth, browserLocalPersistence).catch(() => {});
+
+function startListeners() {
+  stopListeners();
+  detach.push(onValue(ref(db, "status"), (s) => renderStatus(s.val()), () => toast("상태를 읽지 못했어요.")));
+  detach.push(onValue(ref(db, "messages"), (s) => renderMessages(s.val()), () => toast("대화를 읽지 못했어요.")));
+  detach.push(onValue(ref(db, ".info/connected"), (s) => setLive(!!s.val())));
+}
+function stopListeners() {
+  detach.forEach((fn) => { try { fn(); } catch (e) {} });
+  detach = [];
+}
+
+function enter() {
+  booting = false;
+  setScreen("app");
+  startListeners();
+  if (!msgs.length) msgsEl.scrollTop = msgsEl.scrollHeight;
+  setTimeout(() => { try { inputEl.focus({ preventScroll: true }); } catch (e) {} }, 60);
+}
+function leave() {
+  stopListeners();
+  msgs = [];
+  msgsEl.textContent = "";
+  clearReply();
+  maxAgentTs = 0;
+  unread = 0;
+  paintTitle();
+  inputEl.value = "";
+  autoGrow();
+  sendBtn.disabled = true;
+  setScreen("lock");
+  pwEl.value = "";
+  lockErr.textContent = "";
+  setTimeout(() => { try { pwEl.focus({ preventScroll: true }); } catch (e) {} }, 80);
+}
+
+onAuthStateChanged(auth, (u) => {
+  fbUser = u;
+  if (u) enter();
+  else if (!booting) leave();
+  else { booting = false; setScreen("lock"); setTimeout(() => pwEl.focus(), 80); }
+});
+
+/* reset session if user types wrong password from lock while a user exists */
+lockForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const pw = pwEl.value;
+  if (!pw) return;
+  lockErr.textContent = "";
+  enterBtn.disabled = true;
+  enterBtn.textContent = "들어가는 중…";
+  try {
+    await signInWithEmailAndPassword(auth, OFFICE_EMAIL, pw);
+    pwEl.value = "";
+  } catch (err) {
+    const code = (err && err.code) || "";
+    let msg = "비밀번호가 맞지 않아요.";
+    if (code.includes("too-many-requests")) msg = "시도가 너무 많았어요. 잠시 뒤 다시 해 주세요.";
+    else if (code.includes("network") || code.includes("unavailable")) msg = "연결에 문제가 있어요. 잠시 뒤 다시 시도해 주세요.";
+    else if (code.includes("invalid-api-key") || code.includes("configuration")) msg = "접속 설정에 문제가 있어요.";
+    lockErr.textContent = msg;
+    lockForm.classList.remove("shake");
+    void lockForm.offsetWidth;
+    lockForm.classList.add("shake");
+    pwEl.select();
+  } finally {
+    enterBtn.disabled = false;
+    enterBtn.textContent = "입장하기";
+  }
+});
+
+$("#logout").addEventListener("click", async () => {
+  try { await signOut(auth); } catch (e) {}
+  leave();
+});
+
+/* ---------- panel collapse ---------- */
+const COLLAPSE_KEY = "pickle-office-collapsed";
+function applyCollapse(collapsed) {
+  officePanel.classList.toggle("collapsed", collapsed);
+  collapseBtn.textContent = collapsed ? "펼치기" : "접기";
+  collapseBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+}
+let collapsed = false;
+try { collapsed = localStorage.getItem(COLLAPSE_KEY) === "1"; } catch (e) {}
+applyCollapse(collapsed);
+collapseBtn.addEventListener("click", () => {
+  collapsed = !officePanel.classList.contains("collapsed");
+  applyCollapse(collapsed);
+  try { localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0"); } catch (e) {}
+});
+
+/* ---------- misc ---------- */
+window.addEventListener("resize", placeJump);
+window.addEventListener("online", () => setLive(true));
+window.addEventListener("offline", () => setLive(false));
+setInterval(() => { if (lastStatusVal) renderStatus(lastStatusVal); }, 60000);
+autoGrow();
+sendBtn.disabled = true;
+setTimeout(() => { if (document.body.dataset.screen === "boot") { booting = false; setScreen("lock"); } }, 6000);
+
+window.__office = { get msgs() { return msgs.length; }, get screen() { return document.body.dataset.screen; } };
+</script>
+</body>
+</html>
