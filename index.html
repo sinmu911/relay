@@ -25,6 +25,7 @@ p{font-size:13px;color:var(--muted);line-height:1.6;margin:0 0 20px}
 .plain{background:var(--surface);color:var(--ink);border:1px solid var(--line)}
 .inp{display:block;width:100%;padding:11px 12px;margin-bottom:8px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);font-size:14px}
 #how{font-size:12.5px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:8px;display:none;text-align:left;line-height:1.6}
+.hp{position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none}
 </style></head><body>
 <iframe id="app" title="중계현황" allow="clipboard-write"></iframe>
 <div id="stoast"></div>
@@ -41,6 +42,7 @@ p{font-size:13px;color:var(--muted);line-height:1.6;margin:0 0 20px}
     <p style="margin:10px 0 8px;font-size:12.5px">이름과 이메일(네이버·다음·카카오 무엇이든)을 적으면, 사장님이 승인한 뒤 <b>그 메일로 열기 링크</b>가 가요.</p>
     <input id="rq_name" class="inp" maxlength="40" placeholder="이름" autocomplete="name">
     <input id="rq_mail" class="inp" type="email" maxlength="120" placeholder="이메일" autocomplete="email">
+    <input id="rq_web" class="hp" type="text" tabindex="-1" autocomplete="off" aria-hidden="true">
     <button id="rq_go" class="btn hot" type="button">사용 요청 보내기</button>
     <div id="rq_msg" style="font-size:12.5px;color:var(--muted);text-align:center"></div>
   </details>
@@ -121,13 +123,25 @@ if(/KAKAOTALK/i.test(ua)){
   const how=t=>{ $('how').innerHTML=t; $('how').style.display='block'; };
   window.addEventListener('beforeinstallprompt',e=>{ e.preventDefault(); deferred=e; });
   window.addEventListener('appinstalled',()=>{ how('설치됐어요. 홈 화면의 <b>중계현황</b> 아이콘으로 여세요.'); $('install').style.display='none'; });
+  // 사용 요청 스팸 방어(화면에서 되는 것만): 허니팟 칸 + 최소 체류시간 + 같은 브라우저 쿨다운·중복 차단.
+  //  서버(Apps Script doPost) 검증은 이 저장소에서 못 바꾸므로, 같은 이메일 쿨다운·일일 상한은 서버에 두는 것이 근본 대책이다.
+  const RQ_T0=Date.now(), RQ_MIN_MS=3000, RQ_SAME_MS=10*60*1000, RQ_GAP_MS=30*1000;
+  const rqLast=()=>{ try{ return JSON.parse(localStorage.getItem('rq_sent')||'{}')||{}; }catch(e){ return {}; } };
+  const rqMark=email=>{ try{ localStorage.setItem('rq_sent',JSON.stringify({email:email,t:Date.now()})); }catch(e){} };
+  const rqMsg=t=>{ $('rq_msg').textContent=t; };
+  const rqDone=email=>{ $('rq_msg').innerHTML='요청했어요. 승인되면 <b>'+email.replace(/[<>&]/g,'')+'</b> 로 열기 링크가 가요.<br>(메일이 안 보이면 스팸함도 봐 주세요)'; };
   $('rq_go').onclick=async()=>{
     const name=$('rq_name').value.trim(), email=$('rq_mail').value.trim().toLowerCase();
-    if(!name){ $('rq_msg').textContent='이름을 적어 주세요.'; return; }
-    if(!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email)){ $('rq_msg').textContent='이메일을 확인해 주세요.'; return; }
+    if($('rq_web').value){ rqDone(email); return; }   // 사람은 채우지 않는 칸 → 봇이면 조용히 성공한 척(보내지 않음)
+    if(!name){ rqMsg('이름을 적어 주세요.'); return; }
+    if(!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email)){ rqMsg('이메일을 확인해 주세요.'); return; }
+    if(Date.now()-RQ_T0 < RQ_MIN_MS){ rqMsg('내용을 확인한 뒤 다시 눌러 주세요.'); return; }   // 화면이 뜨자마자 누르는 자동 제출 차단
+    const last=rqLast(), now=Date.now();
+    if((last.email||'')===email && now-(last.t||0) < RQ_SAME_MS){ rqDone(email); return; }   // 같은 이메일 10분 중복 차단
+    if(now-(last.t||0) < RQ_GAP_MS){ rqMsg('방금 보냈어요. 잠시 뒤 다시 해 주세요.'); return; }   // 연속 제출 쿨다운
     $('rq_go').disabled=true;
-    try{ await fetch(RELAY,{method:'POST',mode:'no-cors',body:new URLSearchParams({action:'access_request',name:name,email:email})}); $('rq_msg').innerHTML='요청했어요. 승인되면 <b>'+email.replace(/[<>&]/g,'')+'</b> 로 열기 링크가 가요.<br>(메일이 안 보이면 스팸함도 봐 주세요)'; }
-    catch(e){ $('rq_msg').textContent='보내지 못했어요. 잠시 뒤 다시 해 주세요.'; $('rq_go').disabled=false; }
+    try{ await fetch(RELAY,{method:'POST',mode:'no-cors',body:new URLSearchParams({action:'access_request',name:name,email:email})}); rqMark(email); rqDone(email); }
+    catch(e){ rqMsg('보내지 못했어요. 잠시 뒤 다시 해 주세요.'); $('rq_go').disabled=false; }
   };
   $('install').onclick=async()=>{
     if(deferred){ deferred.prompt(); const r=await deferred.userChoice.catch(()=>null); deferred=null; if(r&&r.outcome==='accepted') return; }

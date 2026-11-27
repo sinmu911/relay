@@ -50,15 +50,15 @@ ol.how{padding-left:20px;font-size:13px;margin:8px 0}
 </header>
 
 <section id="v_set" hidden>
-  <div class="note">처음 한 번만: 글을 저장할 GitHub 열쇠(토큰)를 넣어 주세요. 이 폰·PC 브라우저에만 저장돼요.
+  <div class="note">처음 한 번만: 글을 저장할 GitHub 열쇠(토큰)를 넣어 주세요. 이 폰·PC 브라우저에만 저장돼요. 글·사진은 <b>비공개 저장소</b>(relay-content)에만 저장됩니다.
     <ol class="how">
       <li><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">토큰 만들기</a> 열기</li>
-      <li>Repository access → <b>Only select repositories</b> → <b>relay</b></li>
+      <li>Repository access → <b>Only select repositories</b> → <b>relay-content</b></li>
       <li>Permissions → <b>Contents</b> → <b>Read and write</b> → Generate</li>
       <li>나온 <b>github_pat_…</b> 를 아래에 붙여넣기</li>
     </ol></div>
   <label class="f" for="s_token">GitHub 토큰</label><input class="inp" id="s_token" type="password" autocomplete="off" placeholder="github_pat_...">
-  <div class="row"><div><label class="f" for="s_repo">저장소</label><input class="inp" id="s_repo" value="sinmu911/relay"></div>
+  <div class="row"><div><label class="f" for="s_repo">저장소</label><input class="inp" id="s_repo" value="sinmu911/relay-content"></div>
     <div><label class="f" for="s_branch">브랜치</label><input class="inp" id="s_branch" value="main"></div></div>
   <div class="acts"><button class="btn hot" id="s_save" type="button">저장하고 확인</button></div>
   <div id="s_msg" class="hint"></div>
@@ -97,6 +97,8 @@ ol.how{padding-left:20px;font-size:13px;margin:8px 0}
 // 블로그 글쓰기(폰·PC). 글은 GitHub 저장소 _blog/posts 에 .md 로 저장 → 맥의 업로더가 네이버에 올림.
 // 저장 형식은 _blog/uploader/blogpost.py 와 같아야 한다(머리말 key: value).
 const ROOT = '_blog', POSTS = ROOT + '/posts', IMAGES = ROOT + '/images', STATE = ROOT + '/state.json';
+// 글·사진은 비공개 저장소에만 쓴다. 공개 사이트 저장소(sinmu911/relay)는 예전 기본값이라, 그 값이 남아 있으면 바꿔 준다.
+const CONTENT_REPO = 'sinmu911/relay-content', PUBLIC_REPOS = ['sinmu911/relay'];
 const $ = id => document.getElementById(id);
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
@@ -104,6 +106,7 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch (e) {} },
 };
 let cfg = store.get('blog_cfg', null);
+if (cfg && PUBLIC_REPOS.includes(String(cfg.repo || ''))) { cfg.repo = CONTENT_REPO; store.set('blog_cfg', cfg); }
 let files = [], state = {posts: {}}, cache = {}, cur = null;   // cur: 편집 중인 글 {path, sha, rec}
 
 function toast(m) { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => t.style.display = 'none', 4000); }
@@ -130,6 +133,7 @@ async function gh(method, path, body) {
   return j;
 }
 async function put(path, contentB64, sha, message) {
+  if (PUBLIC_REPOS.includes(String(cfg.repo || ''))) throw new Error('공개 저장소에는 글을 저장하지 않아요. [설정]에서 저장소를 relay-content 로 바꿔 주세요.');
   const body = {message, content: contentB64, branch: cfg.branch};
   if (sha) body.sha = sha;
   return gh('PUT', path, body);
@@ -183,6 +187,10 @@ async function loadList() {
   $('list').replaceChildren(el('div', 'empty', '불러오는 중…'));
   try {
     const [dir, st] = await Promise.all([gh('GET', POSTS), gh('GET', STATE)]);
+    if (!dir && !st) {   // 글도 기록도 없음: 새 저장소일 수도, 토큰이 이 저장소를 못 볼 수도 있다
+      const r = await fetch('https://api.github.com/repos/' + cfg.repo, {cache: 'no-store', headers: {'Authorization': 'Bearer ' + cfg.token, 'Accept': 'application/vnd.github+json'}}).catch(() => null);
+      if (r && r.status === 404) throw new Error('저장소를 보지 못했어요(404). [설정]의 저장소 이름과 토큰의 저장소 접근 권한을 확인해 주세요.');
+    }
     files = (Array.isArray(dir) ? dir : []).filter(f => f.type === 'file' && /\.md$/.test(f.name) && !/^[_.]/.test(f.name)).sort((a, b) => b.name.localeCompare(a.name));
     try { state = st ? JSON.parse(b64dec(st.content)) : {posts: {}}; } catch (e) { state = {posts: {}}; }
     state.posts = state.posts || {};
@@ -335,6 +343,7 @@ $('s_save').onclick = async () => {
   const c = {token: $('s_token').value.trim(), repo: $('s_repo').value.trim(), branch: $('s_branch').value.trim() || 'main'};
   if (!/^(github_pat_|ghp_)\w{20,}$/.test(c.token)) { $('s_msg').textContent = '토큰은 github_pat_ 로 시작해요.'; return; }
   if (!/^[\w.-]+\/[\w.-]+$/.test(c.repo)) { $('s_msg').textContent = '저장소는 주인/이름 형식이에요.'; return; }
+  if (PUBLIC_REPOS.includes(c.repo)) { $('s_msg').textContent = '글은 비공개 저장소에만 저장해요. 저장소를 ' + CONTENT_REPO + ' 로 바꿔 주세요.'; return; }
   $('s_msg').textContent = '확인 중…';
   try {
     const r = await fetch('https://api.github.com/repos/' + c.repo, {cache: 'no-store', headers: {'Authorization': 'Bearer ' + c.token, 'Accept': 'application/vnd.github+json'}});
