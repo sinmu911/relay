@@ -448,7 +448,7 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;max-widt
     <button class="tab" type="button" role="tab" id="tab-office" data-tab="office" aria-selected="true" aria-controls="panel-office">🏢 오피스 현황</button>
     <button class="tab" type="button" role="tab" id="tab-usage" data-tab="usage" aria-selected="false" aria-controls="panel-usage">📊 남은 사용량</button>
     <span class="grow"></span>
-    <span class="tabnote">읽기 전용 현황판</span>
+    <span class="tabnote">서준님 전용</span>
   </nav>
 
   <main>
@@ -1151,8 +1151,13 @@ function gauge(label, pct, sub) {
   bar.append(fill);
   const s = document.createElement("p");
   s.className = "g-sub";
-  s.textContent = sub || (pct === null ? "집계 대기 중" : "");
-  d.append(top, bar, s);
+  const subTxt = sub || "";
+  if (subTxt && !(pct === null && subTxt === "집계 대기 중")) {
+    s.textContent = subTxt;
+    d.append(top, bar, s);
+  } else {
+    d.append(top, bar);
+  }
   return d;
 }
 
