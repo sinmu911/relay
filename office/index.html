@@ -285,14 +285,13 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;max-widt
 .f-empty{flex:1 1 auto;display:grid;place-items:center;text-align:center;color:var(--muted);
   font-size:12.5px;line-height:1.7;padding:24px 18px}
 .f-empty b{display:block;font-size:13.5px;color:var(--ink2);margin-bottom:4px}
-.jump{position:absolute;left:50%;bottom:104px;transform:translateX(-50%);border:1px solid var(--lilac-b);
+.jump{position:absolute;left:50%;bottom:126px;transform:translateX(-50%);border:1px solid var(--lilac-b);
   background:#fff;color:#6a53a8;font-size:11px;font-weight:700;border-radius:999px;padding:5px 12px;cursor:pointer;
   box-shadow:0 4px 12px rgba(90,70,50,.14);z-index:3}
 .jump:hover{background:var(--lilac-l)}
 
 /* ---------- composer ---------- */
-.chips{flex:0 0 auto;display:flex;gap:6px;padding:8px 12px 0;overflow-x:auto;scrollbar-width:none}
-.chips::-webkit-scrollbar{display:none}
+.chips{flex:0 0 auto;display:flex;flex-wrap:wrap;gap:5px 6px;padding:8px 10px 0}
 .chip{border:1px solid var(--line);background:#fff;border-radius:999px;padding:4px 10px;font-size:11.5px;
   font-weight:700;color:var(--ink2);cursor:pointer;white-space:nowrap;transition:transform .12s,filter .14s}
 .chip:hover{filter:brightness(.98)}
@@ -306,10 +305,10 @@ main{flex:1 1 auto;min-height:0;overflow-y:auto;padding:12px;width:100%;max-widt
 .chip[data-name="코덱스"]{background:var(--slate-l);border-color:var(--slate-b);color:#5b6472}
 .chip[data-name="GPT"]{background:var(--mint-l);border-color:var(--mint-b);color:#1f7a62}
 .composer{flex:0 0 auto;border-top:1px solid var(--line2);background:var(--card);
-  padding:8px 10px calc(8px + env(safe-area-inset-bottom))}
+  padding:9px 10px calc(10px + env(safe-area-inset-bottom))}
 .row{display:flex;gap:8px;align-items:flex-end}
-#input{flex:1 1 auto;min-height:40px;max-height:124px;resize:none;border:1px solid var(--line);border-radius:14px;
-  padding:10px 13px;font:inherit;font-size:15px;line-height:1.4;background:#fff;color:var(--ink);
+#input{flex:1 1 auto;min-height:44px;max-height:124px;resize:none;border:1px solid var(--line);border-radius:14px;
+  padding:11px 13px;font:inherit;font-size:15px;line-height:1.4;background:#fff;color:var(--ink);
   transition:border-color .16s,box-shadow .16s;font-family:inherit}
 #input:focus{outline:0;border-color:var(--lilac);box-shadow:0 0 0 3px rgba(184,164,227,.24)}
 #input::placeholder{color:#a9a2b0}
