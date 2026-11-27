@@ -298,6 +298,7 @@ main{flex:1 1 auto;min-height:0;display:grid;gap:12px;padding:12px;
   .seat .bubble{font-size:9.5px;padding:3px 6px}
   .seat .plate{display:none}
   .seat{max-width:160px;gap:2px}
+  .seats{padding-bottom:10px}
   .desk{max-width:132px}
   .hint{font-size:10px}
   .brand small{display:none}
@@ -517,6 +518,10 @@ let maxAgentTs = 0;
 let unread = 0;
 let booting = true;
 const fmtCache = new Map();
+
+window.addEventListener("error", function () {
+  try { toast("문제가 생겼어요. 새로고침해 주세요."); } catch (e) {}
+});
 
 /* ---------- helpers ---------- */
 let lastStatusVal = null;
